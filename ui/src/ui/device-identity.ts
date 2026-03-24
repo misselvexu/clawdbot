@@ -1,5 +1,5 @@
 import { getPublicKeyAsync, signAsync, utils } from "@noble/ed25519";
-import { sha256 } from "@noble/hashes/sha2";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { getSafeLocalStorage } from "../local-storage.ts";
 
 type StoredIdentity = {
