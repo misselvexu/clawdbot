@@ -244,6 +244,12 @@ git worktree remove /tmp/issue-99
 7. **Parallel is OK** - run many Codex processes at once for batch work
 8. **NEVER start Codex in ~/.openclaw/** - it'll read your soul docs and get weird ideas about the org chart!
 9. **NEVER checkout branches in ~/Projects/openclaw/** - that's the LIVE OpenClaw instance!
+10. **🔴 MUST KILL all coding agent processes after task completion!**
+    - Every `claude`, `gemini`, `codex`, `pi` process you spawned MUST be killed when your task ends
+    - Use `process action:list` → `process action:kill sessionId:{id}` for each running session
+    - Also kill any orphan processes: `ps aux | grep -E "claude.*--print|gemini.*-p|codex" | grep "/tmp/work-" | grep -v grep | awk '{print $2}' | xargs -r kill`
+    - **Failure to clean up causes memory leaks → system OOM → Gateway crash!**
+    - This applies to ALL exit paths: success, failure, blocked, timeout
 
 ---
 
