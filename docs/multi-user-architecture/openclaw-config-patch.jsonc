@@ -1,0 +1,92 @@
+// Multi-user isolation config patch
+// Merge these sections into ~/.openclaw/config.json
+//
+// Usage:
+//   1. Back up existing config: cp ~/.openclaw/config.json ~/.openclaw/config.json.bak
+//   2. Add the "staff" agent to agents.list[]
+//   3. Add the bindings[] array
+//   4. Restart gateway: openclaw gateway restart
+{
+  // --- Add to agents.list[] ---
+  "agents": {
+    "list": [
+      // ... keep existing agents (main, orchestrator, rnd, etc.) ...
+
+      // New: staff agent for enterprise users
+      {
+        "id": "staff",
+        "name": "Staff Assistant",
+        "workspace": "~/.openclaw/workspace-staff",
+        "model": {
+          "primary": "anthropic/claude-sonnet-4-6",
+          "fallbacks": ["google/gemini-3.1-pro-preview"],
+        },
+        "sandbox": {
+          "mode": "all",
+          "scope": "session",
+          "backend": "docker",
+          "workspaceAccess": "persist",
+        },
+        "tools": {
+          "deny": [
+            "exec",
+            "process",
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "subagents",
+            "agents_list",
+            "session_status",
+          ],
+        },
+        "identity": {
+          "name": "Staff Assistant",
+          "emoji": "octopus",
+        },
+        "subagents": {
+          "allowAgents": [],
+        },
+      },
+    ],
+  },
+
+  // --- Add bindings[] (top-level) ---
+  "bindings": [
+    // Admin - Feishu (exact peer match, highest priority)
+    {
+      "agentId": "main",
+      "match": {
+        "channel": "feishu",
+        "peer": { "kind": "direct", "id": "ou_REPLACE_WITH_ADMIN_OPEN_ID" },
+      },
+    },
+    // Admin - Discord
+    {
+      "agentId": "main",
+      "match": {
+        "channel": "discord",
+        "peer": { "kind": "direct", "id": "REPLACE_WITH_ADMIN_DISCORD_ID" },
+      },
+    },
+    // Admin - WebChat
+    {
+      "agentId": "main",
+      "match": {
+        "channel": "webchat",
+        "peer": { "kind": "direct", "id": "REPLACE_WITH_ADMIN_PEER_HASH" },
+      },
+    },
+    // All other Feishu users -> staff (channel fallback)
+    {
+      "agentId": "staff",
+      "match": { "channel": "feishu" },
+    },
+    // All other WebChat users -> staff
+    {
+      "agentId": "staff",
+      "match": { "channel": "webchat" },
+    },
+  ],
+}

@@ -2876,6 +2876,10 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                         type: "string",
                         const: "rw",
                       },
+                      {
+                        type: "string",
+                        const: "persist",
+                      },
                     ],
                   },
                   sessionToolsVisibility: {
@@ -4067,6 +4071,10 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                         {
                           type: "string",
                           const: "rw",
+                        },
+                        {
+                          type: "string",
+                          const: "persist",
                         },
                       ],
                     },

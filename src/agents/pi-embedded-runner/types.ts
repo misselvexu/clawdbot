@@ -93,7 +93,7 @@ export type EmbeddedSandboxInfo = {
   enabled: boolean;
   workspaceDir?: string;
   containerWorkspaceDir?: string;
-  workspaceAccess?: "none" | "ro" | "rw";
+  workspaceAccess?: "none" | "ro" | "rw" | "persist";
   agentWorkspaceMount?: string;
   browserBridgeUrl?: string;
   browserNoVncUrl?: string;

@@ -4,6 +4,7 @@ import { appendWorkspaceMountArgs } from "./workspace-mounts.js";
 describe("appendWorkspaceMountArgs", () => {
   it.each([
     { access: "rw" as const, expected: "/tmp/workspace:/workspace" },
+    { access: "persist" as const, expected: "/tmp/workspace:/workspace" },
     { access: "ro" as const, expected: "/tmp/workspace:/workspace:ro" },
     { access: "none" as const, expected: "/tmp/workspace:/workspace:ro" },
   ])("sets main mount permissions for workspaceAccess=$access", ({ access, expected }) => {
@@ -31,6 +32,20 @@ describe("appendWorkspaceMountArgs", () => {
 
     const mounts = args.filter((arg) => arg.startsWith("/tmp/"));
     expect(mounts).toEqual(["/tmp/workspace:/workspace:ro"]);
+  });
+
+  it("mounts agent workspace read-only for persist mode", () => {
+    const args: string[] = [];
+    appendWorkspaceMountArgs({
+      args,
+      workspaceDir: "/tmp/workspace",
+      agentWorkspaceDir: "/tmp/agent-workspace",
+      workdir: "/workspace",
+      workspaceAccess: "persist",
+    });
+
+    const mounts = args.filter((arg) => arg.startsWith("/tmp/"));
+    expect(mounts).toEqual(["/tmp/workspace:/workspace", "/tmp/agent-workspace:/agent:ro"]);
   });
 
   it("omits agent workspace mount when paths are identical", () => {

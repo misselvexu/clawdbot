@@ -1,6 +1,7 @@
 # 多用户隔离架构设计
 
-> 版本: v1.0 | 日期: 2026-03-25 | 作者: 小葡萄 + 老徐
+> 版本: v1.1 | 日期: 2026-03-26 | 作者: 小葡萄 + 老徐
+> v1.1 修订：修正路由优先级说明
 
 ## 1. 背景与目标
 
@@ -49,11 +50,12 @@
 - `main` agent: 老徐专属，sandbox off，完整工具权限
 - `staff` agent: 共用一个 agent 定义，不同用户通过 session 级沙箱隔离
 - `bindings`: 按飞书 `peer.id` (open_id) 精确匹配老徐 → main，其余兜底 → staff
+- 路由优先级按**匹配精确度**决定（peer > guild+roles > guild > team > account > channel），与配置顺序无关
 
 #### Session 隔离（已有能力）
 
 - `dmScope: "per-channel-peer"` — 每个渠道的每个用户独立 session
-- Session key 格式: `agent:{agentId}:feishu-china:direct:{open_id}`
+- Session key 格式: `agent:{agentId}:feishu:direct:{open_id}`
 - 对话历史存储: `~/.openclaw/agents/{agentId}/sessions/{sessionId}.jsonl`
 - **对话历史天然隔离，无需额外改造**
 
@@ -73,27 +75,44 @@
 
 ### 2.3 各渠道路由
 
-| 渠道    | 用户                       | Session Key                                 | 路由到                |
-| ------- | -------------------------- | ------------------------------------------- | --------------------- |
-| 飞书    | 老徐 `ou_5396...`          | `agent:main:feishu-china:direct:ou_5396...` | main（peer binding）  |
-| 飞书    | 同事 `ou_xxxx`             | `agent:staff:feishu-china:direct:ou_xxxx`   | staff（channel 兜底） |
-| Discord | 老徐 `1113661364670574642` | `agent:main:discord:direct:1113661...`      | main（peer binding）  |
-| WebChat | 老徐 `elve.xu`             | `agent:main:web:a737a26c`                   | main（peer binding）  |
-| WebChat | LDAP 用户                  | `agent:staff:web:{peer_id}`                 | staff（channel 兜底） |
-| WebChat | 访客                       | `agent:staff:web:{hash}`                    | staff（channel 兜底） |
+| 渠道    | 用户                       | Session Key                            | 路由到                |
+| ------- | -------------------------- | -------------------------------------- | --------------------- |
+| 飞书    | 老徐 `ou_5396...`          | `agent:main:feishu:direct:ou_5396...`  | main（peer binding）  |
+| 飞书    | 同事 `ou_xxxx`             | `agent:staff:feishu:direct:ou_xxxx`    | staff（channel 兜底） |
+| Discord | 老徐 `1113661364670574642` | `agent:main:discord:direct:1113661...` | main（peer binding）  |
+| WebChat | 老徐 `elve.xu`             | `agent:main:web:a737a26c`              | main（peer binding）  |
+| WebChat | LDAP 用户                  | `agent:staff:web:{peer_id}`            | staff（channel 兜底） |
+| WebChat | 访客                       | `agent:staff:web:{hash}`               | staff（channel 兜底） |
 
 ## 3. 隔离矩阵
 
-| 维度                | main (老徐)             | staff (同事)                    | 隔离方式               |
-| ------------------- | ----------------------- | ------------------------------- | ---------------------- |
-| 对话历史            | `agents/main/sessions/` | `agents/staff/sessions/`        | agent 级物理隔离       |
-| Workspace 文件      | `~/.openclaw/workspace` | `~/.openclaw/sandboxes/{slug}/` | 沙箱 persist 模式      |
-| SOUL.md / AGENTS.md | 老徐专属版本            | staff 通用版本（seed）          | agent workspace 隔离   |
-| USER.md / 记忆      | workspace 下            | 各沙箱 workspace 独立           | persist 模式物理隔离   |
-| 工具权限            | 全部可用                | 受限（按需开放）                | agent tools allow/deny |
-| 模型                | 当前配置                | 共享（Gateway 统一）            | 无需隔离               |
-| Skills              | 全部                    | 按需配置                        | agent skills 列表      |
-| OV 知识库           | 全局可查                | 公共 + 私有目录                 | 行为层规则             |
+| 维度                | main (老徐)             | staff (同事)                           | 隔离方式             |
+| ------------------- | ----------------------- | -------------------------------------- | -------------------- |
+| 对话历史            | `agents/main/sessions/` | `agents/staff/sessions/`               | agent 级物理隔离     |
+| Workspace 文件      | `~/.openclaw/workspace` | `~/.openclaw/sandboxes/{slug}/`        | 沙箱 persist 模式    |
+| SOUL.md / AGENTS.md | 老徐专属版本            | staff 通用版本（seed）                 | agent workspace 隔离 |
+| USER.md / 记忆      | workspace 下            | 各沙箱 workspace 独立                  | persist 模式物理隔离 |
+| 工具权限            | 全部可用                | 除 exec/process/session 管理外全部可用 | agent tools deny     |
+| 模型                | 当前配置                | 共享（Gateway 统一）                   | 无需隔离             |
+| Skills              | 全部                    | 按需配置                               | agent skills 列表    |
+| OV 知识库           | 全局可查                | 公共 + 私有目录                        | 行为层规则           |
+
+### 3.1 Staff Agent 工具能力清单
+
+| 工具                                   | 可用 | 执行位置   | 说明                          |
+| -------------------------------------- | ---- | ---------- | ----------------------------- |
+| read / write / edit                    | ✅   | 沙箱容器   | 限制在沙箱 workspace 内       |
+| web_search / web_fetch                 | ✅   | Gateway    | 网页搜索和内容提取            |
+| browser                                | ✅   | 沙箱浏览器 | 需开启沙箱浏览器（可选）      |
+| ov_search / ov_remember                | ✅   | Gateway    | OV 知识库查询                 |
+| memory_search / memory_get             | ✅   | Gateway    | 搜索沙箱 workspace 内记忆文件 |
+| image_generate                         | ✅   | Gateway    | 图片生成                      |
+| tts                                    | ✅   | Gateway    | 语音合成                      |
+| message                                | ✅   | Gateway    | 消息发送                      |
+| sessions_list / history / send         | ❌   | —          | 禁止跨 session 操作           |
+| session_status                         | ❌   | —          | 禁止查看会话状态              |
+| exec / process                         | ❌   | —          | 禁止运行 shell 命令           |
+| sessions\_\* / subagents / agents_list | ❌   | —          | 禁止跨 session 操作           |
 
 ## 4. 数据流
 
@@ -102,10 +121,10 @@
 ```
 同事 A 首次发消息给飞书机器人
   → Gateway 收到 (sender: ou_xxxx)
-  → binding 匹配: channel=feishu-china, 无 peer 精确匹配 → staff agent
-  → session key: agent:staff:feishu-china:direct:ou_xxxx
+  → binding 匹配: channel=feishu, 无 peer 精确匹配 → staff agent
+  → session key: agent:staff:feishu:direct:ou_xxxx
   → sandbox resolve: mode=all → 需要沙箱
-  → resolveSandboxWorkspaceDir: ~/.openclaw/sandboxes/agent-staff-feishu-china-direct-ou-xxxx-{hash}/
+  → resolveSandboxWorkspaceDir: ~/.openclaw/sandboxes/agent-staff-feishu-direct-ou-xxxx-{hash}/
   → ensureSandboxWorkspace: 目录不存在 → 创建 + seed SOUL.md/AGENTS.md
   → workspaceAccess=persist → bind-mount rw 到容器
   → AI 启动对话 → 读 AGENTS.md → 问"怎么称呼你？"

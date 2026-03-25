@@ -46,7 +46,7 @@ async function ensureSandboxWorkspaceLayout(params: {
       agentWorkspaceDir,
       params.config?.agents?.defaults?.skipBootstrap,
     );
-    if (cfg.workspaceAccess !== "rw") {
+    if (cfg.workspaceAccess !== "rw" && cfg.workspaceAccess !== "persist") {
       try {
         await syncSkillsToWorkspace({
           sourceWorkspaceDir: agentWorkspaceDir,

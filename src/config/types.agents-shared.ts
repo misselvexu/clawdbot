@@ -19,7 +19,7 @@ export type AgentSandboxConfig = {
   /** Sandbox runtime backend id. Default: "docker". */
   backend?: string;
   /** Agent workspace access inside the sandbox. */
-  workspaceAccess?: "none" | "ro" | "rw";
+  workspaceAccess?: "none" | "ro" | "rw" | "persist";
   /**
    * Session tools visibility for sandboxed sessions.
    * - "spawned": only allow session tools to target sessions spawned from this session (default)

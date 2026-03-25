@@ -27,7 +27,7 @@ export type SandboxToolPolicyResolved = {
   };
 };
 
-export type SandboxWorkspaceAccess = "none" | "ro" | "rw";
+export type SandboxWorkspaceAccess = "none" | "ro" | "rw" | "persist";
 
 export type SandboxBrowserConfig = {
   enabled: boolean;

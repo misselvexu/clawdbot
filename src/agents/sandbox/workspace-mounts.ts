@@ -2,11 +2,11 @@ import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./constants.js";
 import type { SandboxWorkspaceAccess } from "./types.js";
 
 function mainWorkspaceMountSuffix(access: SandboxWorkspaceAccess): "" | ":ro" {
-  return access === "rw" ? "" : ":ro";
+  return access === "rw" || access === "persist" ? "" : ":ro";
 }
 
 function agentWorkspaceMountSuffix(access: SandboxWorkspaceAccess): "" | ":ro" {
-  return access === "ro" ? ":ro" : "";
+  return access === "ro" || access === "persist" ? ":ro" : "";
 }
 
 export function appendWorkspaceMountArgs(params: {

@@ -192,7 +192,10 @@ class OpenShellFsBridge implements SandboxFsBridge {
   }
 
   private ensureWritable(target: ResolvedMountPath, action: string) {
-    if (this.sandbox.workspaceAccess !== "rw" || !target.writable) {
+    if (
+      (this.sandbox.workspaceAccess !== "rw" && this.sandbox.workspaceAccess !== "persist") ||
+      !target.writable
+    ) {
       throw new Error(`Sandbox path is read-only; cannot ${action}: ${target.containerPath}`);
     }
   }
@@ -229,7 +232,8 @@ class OpenShellFsBridge implements SandboxFsBridge {
           ? path.posix.join(workspaceContainerRoot, relative)
           : workspaceContainerRoot,
         mountHostRoot: workspaceRoot,
-        writable: this.sandbox.workspaceAccess === "rw",
+        writable:
+          this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
         source: "workspace",
       };
     }
@@ -247,7 +251,8 @@ class OpenShellFsBridge implements SandboxFsBridge {
           ? path.posix.join(agentContainerRoot, relative)
           : agentContainerRoot,
         mountHostRoot: agentRoot,
-        writable: this.sandbox.workspaceAccess === "rw",
+        writable:
+          this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
         source: "agent",
       };
     }
@@ -264,7 +269,8 @@ class OpenShellFsBridge implements SandboxFsBridge {
           ? path.posix.join(workspaceContainerRoot, relative)
           : workspaceContainerRoot,
         mountHostRoot: workspaceRoot,
-        writable: this.sandbox.workspaceAccess === "rw",
+        writable:
+          this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
         source: "workspace",
       };
     }
@@ -278,7 +284,8 @@ class OpenShellFsBridge implements SandboxFsBridge {
           ? path.posix.join(agentContainerRoot, relative)
           : agentContainerRoot,
         mountHostRoot: agentRoot,
-        writable: this.sandbox.workspaceAccess === "rw",
+        writable:
+          this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
         source: "agent",
       };
     }

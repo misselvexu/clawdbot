@@ -1,6 +1,7 @@
 # 多用户隔离 — 实施方案与执行计划
 
-> 版本: v1.0 | 日期: 2026-03-25 | 前置文档: [ARCHITECTURE.md](./ARCHITECTURE.md)
+> 版本: v1.1 | 日期: 2026-03-26 | 前置文档: [ARCHITECTURE.md](./ARCHITECTURE.md)
+> v1.1 修订：修复 Phase 1 文件清单遗漏、agentWorkspace 安全漏洞、移除错误的网络配置建议
 
 ## 实施概览
 
@@ -21,58 +22,98 @@ Phase 4: 验证与上线                                   → 不需要重启
 
 新增 `workspaceAccess: "persist"` 模式，让沙箱 workspace 在容器销毁后保留在宿主机。
 
-### 改动清单
+### 改动清单（8 个文件）
 
-#### 1.1 `src/agents/sandbox/types.ts`
+#### 1.1 `src/agents/sandbox/types.ts` (:30)
 
 ```typescript
-// 修改 SandboxWorkspaceAccess 类型
+// 修改 SandboxWorkspaceAccess 类型，加 "persist"
 export type SandboxWorkspaceAccess = "none" | "ro" | "rw" | "persist";
 ```
 
-#### 1.2 `src/agents/sandbox/workspace-mounts.ts`
+#### 1.2 `src/config/types.agents-shared.ts` (:22)
 
 ```typescript
-// mainWorkspaceMountSuffix: 让 "persist" 模式下 bind-mount 为 rw
+// TypeScript 类型声明，加 "persist"
+workspaceAccess?: "none" | "ro" | "rw" | "persist";
+```
+
+#### 1.3 `src/config/zod-schema.agent-runtime.ts` (:521)
+
+```typescript
+// Zod 运行时验证 schema，在 union 中加 z.literal("persist")
+// 找到 workspaceAccess 的 z.union([...])，在 z.literal("rw") 后加:
+z.literal("persist"),
+```
+
+> ⚠️ 缺了 1.2 和 1.3，`"persist"` 写进 openclaw.json 会被 Zod 验证拒绝，gateway 启动直接报错。
+
+#### 1.4 `src/agents/sandbox/workspace-mounts.ts`
+
+```typescript
+// mainWorkspaceMountSuffix: 让 "persist" 模式下主 workspace bind-mount 为 rw
 function mainWorkspaceMountSuffix(access: SandboxWorkspaceAccess): "" | ":ro" {
   return access === "rw" || access === "persist" ? "" : ":ro";
 }
+
+// ⚠️ agentWorkspaceMountSuffix: "persist" 模式下 agent workspace 必须只读！
+// 否则沙箱用户可以写 /agent 路径修改 staff agent 的共享 seed 文件（安全漏洞）
+function agentWorkspaceMountSuffix(access: SandboxWorkspaceAccess): "" | ":ro" {
+  return access === "ro" || access === "persist" ? ":ro" : "";
+}
 ```
 
-#### 1.3 `src/agents/sandbox/context.ts`
+#### 1.5 `extensions/openshell/src/fs-bridge.ts`
 
 ```typescript
-// ensureSandboxWorkspaceLayout 中的路径逻辑
-// "rw" → 用 agentWorkspaceDir（共享）
-// "persist" → 用 sandboxWorkspaceDir（per-session 独立）✨
-// "none"/"ro" → 用 sandboxWorkspaceDir（但挂载只读）
-const workspaceDir = cfg.workspaceAccess === "rw" ? agentWorkspaceDir : sandboxWorkspaceDir;
-// ↑ 这一行不需要改！"persist" 不是 "rw"，自然走 sandboxWorkspaceDir
+// 5 处 workspaceAccess === "rw" 检查需要加 persist 支持：
+// 第 195 行 — 写入验证
+if ((this.sandbox.workspaceAccess !== "rw" && this.sandbox.workspaceAccess !== "persist") || !target.writable) {
+// 第 232/250/267/281 行 — writable 标志
+writable: this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
 ```
 
-#### 1.4 `src/agents/sandbox/config.ts`
+> 不改此文件，"persist" 模式下沙箱内所有写操作（创建 USER.md、保存记忆等）都会被拒绝。
 
-搜索 `workspaceAccess` 的验证逻辑，确保接受 `"persist"` 值。
+#### 1.6 `src/agents/sandbox/context.ts` (:49) — skills 同步条件
 
 ```typescript
-// 找到类似这样的验证
-const VALID_WORKSPACE_ACCESS = ["none", "ro", "rw", "persist"];
+// 排除 persist 模式，避免每次 resolveSandboxContext 都清空 skills/ 目录
+if (cfg.workspaceAccess !== "rw" && cfg.workspaceAccess !== "persist") {
+  await syncSkillsToWorkspace({ ... });
+}
 ```
 
-#### 1.5 测试文件（如有）
+> 路径选择逻辑（:41）不需要改："persist" 不是 "rw"，自然走 sandboxWorkspaceDir。
 
-- `workspace-mounts.test.ts` — 增加 `"persist"` 模式的测试用例
-- `context.ts` 相关测试 — 验证 persist 路径逻辑
+#### 1.7 `src/agents/pi-embedded-runner/types.ts` (:96)
+
+```typescript
+// Plugin SDK 的沙箱信息类型也需要加 "persist"
+workspaceAccess?: "none" | "ro" | "rw" | "persist";
+```
+
+#### 1.8 `src/agents/sandbox/config.ts` — **不需要改**
+
+该文件只组装默认值，不做 workspaceAccess 验证。验证在 1.2 和 1.3 中完成。
+
+#### 1.9 测试文件
+
+- `workspace-mounts.test.ts` — 增加 `"persist"` 模式的测试用例（主挂载 rw，agent 挂载 ro）
+
+### ⚠️ 副作用：存量容器重建
+
+`workspaceAccess` 参与 Docker 容器的 `configHash` 计算。源码改造后现有沙箱容器会被检测到 hash 不匹配，自动删除重建。**Workspace 目录保留，数据不丢失**，但容器需重新拉起。
 
 ### 验证方法
 
 ```bash
 # 构建
-cd ~/openclaw && npm run build
+cd ~/openclaw && pnpm build
 
-# 单元测试（如果有的话）
-npm test -- --grep "workspace.*mount"
-npm test -- --grep "sandbox.*workspace"
+# 单元测试
+pnpm test -- src/agents/sandbox/workspace-mounts.test.ts
+pnpm test -- src/agents/sandbox/context.test.ts
 ```
 
 ### 回滚
@@ -134,30 +175,19 @@ Phase 1 已完成并构建成功。
           "workspaceAccess": "persist",
         },
         "tools": {
-          "allow": [
-            "read",
-            "write",
-            "edit",
-            "web_search",
-            "web_fetch",
-            "ov_search",
-            "memory_search",
-            "memory_get",
-            "image_generate",
-            "tts",
-          ],
           "deny": [
             "exec",
             "process",
-            "browser",
-            "sessions_spawn",
-            "sessions_send",
             "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
             "subagents",
             "agents_list",
+            "session_status",
           ],
         },
-        "skills": [],
         "identity": {
           "name": "海管家助手",
           "emoji": "🐙",
@@ -175,7 +205,7 @@ Phase 1 已完成并构建成功。
     {
       "agentId": "main",
       "match": {
-        "channel": "feishu-china",
+        "channel": "feishu",
         "peer": { "kind": "direct", "id": "ou_5396a070b57532dc952776a3a7dca921" },
       },
     },
@@ -198,7 +228,7 @@ Phase 1 已完成并构建成功。
     // 其他飞书用户 → staff（channel 兜底）
     {
       "agentId": "staff",
-      "match": { "channel": "feishu-china" },
+      "match": { "channel": "feishu" },
     },
     // 其他 WebChat 用户 → staff
     {
@@ -209,35 +239,44 @@ Phase 1 已完成并构建成功。
 }
 ```
 
-### 2.2 Docker 沙箱准备
+### 2.2 Docker 沙箱镜像构建
+
+沙箱功能依赖预构建的 Docker 镜像。**必须在 Phase 2 配置生效前完成。**
 
 ```bash
-# 确保沙箱镜像已构建
 cd ~/openclaw
+
+# Step 1: 构建基础镜像（Debian bookworm-slim + bash/curl/git/jq/python3/ripgrep）
 scripts/sandbox-setup.sh
-# 或使用 common 镜像（含 curl/jq/python3/git）
+# → 产出: openclaw-sandbox:bookworm-slim
+# → 用途: 最小沙箱环境，适合纯对话 + 文件读写场景
+
+# Step 2（可选）: 构建增强镜像（+ nodejs/npm/golang/rust/pnpm/bun/brew 等）
 scripts/sandbox-common-setup.sh
+# → 产出: openclaw-sandbox-common:bookworm-slim
+# → 用途: 需要 exec 跑代码的场景（staff 不需要，但未来 staff-dev 可能需要）
 
 # 验证镜像
 docker images | grep openclaw-sandbox
 ```
 
-### 2.3 沙箱网络配置
+Staff agent 当前只需基础镜像（Step 1）。如果 agent 配置中未指定 `docker.image`，默认使用 `openclaw-sandbox:bookworm-slim`。
 
-staff agent 的沙箱默认无网络。如果需要 AI 调用 web_search/web_fetch，需要配网络：
+如需指定镜像，在 staff agent 的 sandbox 配置中添加：
 
 ```jsonc
-{
-  "sandbox": {
-    "docker": {
-      "network": "bridge", // 或创建专用网络
-    },
-  },
-}
+"docker": { "image": "openclaw-sandbox:bookworm-slim" }
 ```
 
-### 验证方法
+### 2.3 关于沙箱网络
 
+`web_search`、`web_fetch` 等工具在 **Gateway 进程**中执行（工具 allow/deny 是 Gateway 层控制），不在 Docker 容器内。沙箱容器只是 `exec`/`process` 的执行环境。
+
+**不需要为 staff agent 配置 `docker.network: "bridge"`。** 默认无网络即可，反而更安全。
+
+````
+
+### 验证方法
 ```bash
 # 重启 gateway
 openclaw gateway restart
@@ -247,7 +286,7 @@ openclaw agents list --bindings
 
 # 检查沙箱状态
 openclaw sandbox list
-```
+````
 
 ### 回滚
 
@@ -364,10 +403,10 @@ ls ~/.openclaw/sandboxes/
 cp ~/.openclaw/openclaw.json.bak ~/.openclaw/openclaw.json
 
 # 2. 如果是源码改动导致，回退代码
-cd ~/openclaw && git checkout main
+cd ~/openclaw && git revert HEAD
 
 # 3. 重新构建
-npm run build
+pnpm build
 
 # 4. 重启
 openclaw gateway restart
@@ -401,6 +440,30 @@ openclaw gateway restart
 ### ⚠️ 飞书 binding 注意
 
 飞书机器人的可用范围需要在飞书管理后台设置。如果机器人当前只对老徐可见，需要先扩大可用范围，同事才能找到机器人发消息。
+
+### ⚠️ 未来特权 Staff（如 staff-dev）镜像方案
+
+当前 staff agent deny exec，基础镜像足够。未来如果新增开放 exec 的特权 agent，有两种做法：
+
+**方案 A — 使用增强镜像（推荐）：**
+
+```jsonc
+{
+  "id": "staff-dev",
+  "sandbox": {
+    "mode": "all",
+    "scope": "session",
+    "workspaceAccess": "persist",
+    "docker": { "image": "openclaw-sandbox-common:bookworm-slim" },
+  },
+  // 不 deny exec → 可以跑代码
+}
+```
+
+需提前构建: `scripts/sandbox-common-setup.sh`（含 nodejs/python3/golang/rust/pnpm/bun）
+
+**方案 B — 自定义镜像：**
+基于基础镜像编写 Dockerfile 加装特定工具链，适合只需某一种语言环境的场景。
 
 ### ⚠️ WebChat peer id 不确定性
 
