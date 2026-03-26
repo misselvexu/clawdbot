@@ -21,6 +21,7 @@ import { upsertPresence } from "../../../infra/system-presence.js";
 import { loadVoiceWakeConfig } from "../../../infra/voicewake.js";
 import { rawDataToString } from "../../../infra/ws.js";
 import type { createSubsystemLogger } from "../../../logging/subsystem.js";
+import { resolveAgentRoute } from "../../../routing/resolve-route.js";
 import { roleScopesAllow } from "../../../shared/operator-scope-compat.js";
 import { isGatewayCliClient, isWebchatClient } from "../../../utils/message-channel.js";
 import { resolveRuntimeServiceVersion } from "../../../version.js";
@@ -33,6 +34,7 @@ import {
   mintCanvasCapabilityToken,
 } from "../../canvas-capability.js";
 import { normalizeDeviceMetadataForAuth } from "../../device-auth.js";
+import { WRITE_SCOPE } from "../../method-scopes.js";
 import {
   isLocalishHost,
   isLoopbackAddress,
@@ -952,6 +954,32 @@ export function attachGatewayWsMessageHandler(params: {
         }
 
         const snapshot = buildGatewaySnapshot();
+
+        // ── WebChat multi-user routing + scope control ──
+        // Mirrors channel handler pattern: resolveAgentRoute(channel, peer) → route
+        // Identity from auth-proxy injected displayName (not authResult.user which needs trusted-proxy mode)
+        const webchatUser = isControlUi ? connectParams.client.displayName?.trim() : null;
+        if (webchatUser && snapshot.sessionDefaults) {
+          const routeCfg = loadConfig();
+          const route = resolveAgentRoute({
+            cfg: routeCfg,
+            channel: "webchat",
+            accountId: "default",
+            peer: { kind: "direct", id: webchatUser },
+          });
+          // Only override for non-main agents (non-admin users)
+          // Admin's snapshot stays untouched → keeps mainSessionKey = "agent:main:main"
+          if (route.agentId !== "main") {
+            snapshot.sessionDefaults = {
+              ...snapshot.sessionDefaults,
+              mainSessionKey: route.sessionKey,
+              defaultAgentId: route.agentId,
+            };
+            scopes = [WRITE_SCOPE];
+            connectParams.scopes = scopes;
+          }
+        }
+
         const cachedHealth = getHealthCache();
         if (cachedHealth) {
           snapshot.health = cachedHealth;
