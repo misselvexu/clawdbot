@@ -9,6 +9,7 @@ import {
   loadCron,
   refreshActiveTab,
   setLastActiveSessionKey,
+  syncUrlWithSessionKey,
 } from "./app-settings.ts";
 import { handleAgentEvent, resetToolStream, type AgentEventPayload } from "./app-tool-stream.ts";
 import type { OpenClawApp } from "./app.ts";
@@ -166,11 +167,21 @@ function applySessionDefaults(host: GatewayHost, defaults?: SessionDefaultsSnaps
   const shouldUpdateSettings =
     nextSettings.sessionKey !== host.settings.sessionKey ||
     nextSettings.lastActiveSessionKey !== host.settings.lastActiveSessionKey;
-  if (nextSessionKey !== host.sessionKey) {
+  const sessionKeyChanged = nextSessionKey !== host.sessionKey;
+  if (sessionKeyChanged) {
     host.sessionKey = nextSessionKey;
   }
   if (shouldUpdateSettings) {
     applySettings(host as unknown as Parameters<typeof applySettings>[0], nextSettings);
+  }
+  // Sync URL after session key change so the address bar reflects the resolved
+  // session (e.g. "main" → "agent:staff:webchat:direct:guest:openclaw2026").
+  if (sessionKeyChanged && typeof window !== "undefined") {
+    syncUrlWithSessionKey(
+      host as unknown as Parameters<typeof syncUrlWithSessionKey>[0],
+      nextSessionKey,
+      true,
+    );
   }
 }
 
