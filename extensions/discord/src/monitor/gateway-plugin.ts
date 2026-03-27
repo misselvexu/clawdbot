@@ -234,6 +234,23 @@ function createGatewayPlugin(params: {
 
     constructor() {
       super(params.options);
+      // Guard against uncaught "error" events after the gateway supervisor
+      // disposes its listener.  When the health-monitor stops the channel it
+      // sets maxAttempts=0 then disconnects; the async WebSocket close fires
+      // *after* dispose() has already removed the supervisor's error handler.
+      // Without this fallback the emitted error becomes an uncaught exception
+      // that crashes the entire Gateway process (taking down WebChat and all
+      // other channels).
+      this.emitter.on("error", (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("Max reconnect attempts")) {
+          params.runtime?.log?.(
+            `discord: gateway reconnect exhausted (expected during restart): ${msg}`,
+          );
+          return;
+        }
+        params.runtime?.error?.(danger(`discord: unhandled gateway error: ${msg}`));
+      });
     }
 
     override async registerClient(client: Parameters<GatewayPlugin["registerClient"]>[0]) {
