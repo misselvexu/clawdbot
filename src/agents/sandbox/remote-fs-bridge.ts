@@ -239,7 +239,8 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     const mounts: MountInfo[] = [
       {
         containerRoot: normalizeContainerPath(this.runtime.remoteWorkspaceDir),
-        writable: this.sandbox.workspaceAccess === "rw",
+        writable:
+          this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
         source: "workspace",
       },
     ];
@@ -249,7 +250,8 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     ) {
       mounts.push({
         containerRoot: normalizeContainerPath(this.runtime.remoteAgentWorkspaceDir),
-        writable: this.sandbox.workspaceAccess === "rw",
+        writable:
+          this.sandbox.workspaceAccess === "rw" || this.sandbox.workspaceAccess === "persist",
         source: "agent",
       });
     }
@@ -351,7 +353,10 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
   }
 
   private ensureWritable(target: ResolvedRemotePath, action: string) {
-    if (this.sandbox.workspaceAccess !== "rw" || !target.writable) {
+    if (
+      (this.sandbox.workspaceAccess !== "rw" && this.sandbox.workspaceAccess !== "persist") ||
+      !target.writable
+    ) {
       throw new Error(`Sandbox path is read-only; cannot ${action}: ${target.containerPath}`);
     }
   }

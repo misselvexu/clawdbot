@@ -58,6 +58,7 @@ nano-pdf edit deck.pdf 1 "Fix the typo" 2 "Make the chart blue" 3 "Add a footer"
 ```
 
 Options:
+
 - `--style-refs "5,6"` — Use pages 5 and 6 as visual style references
 - `--use-context` — Include extracted PDF text as context (can help or confuse the model)
 - `--output path.pdf` — Output path (default: `edited_<filename>`)
