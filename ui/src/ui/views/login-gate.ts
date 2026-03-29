@@ -5,28 +5,13 @@ import { icons } from "../icons.ts";
 import { normalizeBasePath } from "../navigation.ts";
 import { agentLogoUrl } from "./agents-utils.ts";
 import { renderConnectCommand } from "./connect-command.ts";
-import { renderLoginGateV2 } from "./login-gate-v2.ts";
 
 export function renderLoginGate(state: AppViewState) {
-  // Check if v2 is enabled
-  if ((state as Record<string, unknown>)._loginV2) {
-    return renderLoginGateV2(state);
-  }
-
   const basePath = normalizeBasePath(state.basePath ?? "");
   const faviconSrc = agentLogoUrl(basePath);
 
   return html`
     <div class="login-gate">
-      <button
-        class="login-gate__v2-toggle"
-        @click=${() => {
-          (state as Record<string, unknown>)._loginV2 = true;
-        }}
-        title="Try the new login experience"
-      >
-        ✨ New UI
-      </button>
       <div class="login-gate__card">
         <div class="login-gate__header">
           <img class="login-gate__logo" src=${faviconSrc} alt="OpenClaw" />
