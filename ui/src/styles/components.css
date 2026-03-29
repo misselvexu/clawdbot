@@ -4468,3 +4468,27 @@ details[open] > .ov-expandable-toggle::after {
     gap: 4px;
   }
 }
+
+/* Login Gate V2 */
+@import "./login-gate-v2.css";
+
+.login-gate__v2-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #6c3ff5, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-gate__v2-toggle:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+}
