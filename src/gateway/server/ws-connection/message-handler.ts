@@ -1032,14 +1032,18 @@ export function attachGatewayWsMessageHandler(params: {
         // ── WebChat multi-user routing + scope control ──
         // Mirrors channel handler pattern: resolveAgentRoute(channel, peer) → route
         // Identity from auth-proxy injected displayName (not authResult.user which needs trusted-proxy mode)
+        // Convention: displayName "wecom:XuHongWei" → channel=wecom, peer=XuHongWei (cross-channel session)
         const webchatUser = isControlUi ? connectParams.client.displayName?.trim() : null;
         if (webchatUser && snapshot.sessionDefaults) {
           const routeCfg = loadConfig();
+          const channelHintMatch = webchatUser.match(/^([a-z][\w-]*):(.+)$/i);
+          const routeChannel = channelHintMatch ? channelHintMatch[1].toLowerCase() : "webchat";
+          const routePeerId = channelHintMatch ? channelHintMatch[2] : webchatUser;
           const route = resolveAgentRoute({
             cfg: routeCfg,
-            channel: "webchat",
+            channel: routeChannel,
             accountId: "default",
-            peer: { kind: "direct", id: webchatUser },
+            peer: { kind: "direct", id: routePeerId },
           });
           // Only override for non-main agents (non-admin users)
           // Admin's snapshot stays untouched → keeps mainSessionKey = "agent:main:main"
