@@ -1036,7 +1036,7 @@ export function attachGatewayWsMessageHandler(params: {
         const webchatUser = isControlUi ? connectParams.client.displayName?.trim() : null;
         if (webchatUser && snapshot.sessionDefaults) {
           const routeCfg = loadConfig();
-          const channelHintMatch = webchatUser.match(/^([a-z][\w-]*):(.+)$/i);
+          const channelHintMatch = webchatUser.match(/^(?!guest|admin)([a-z][\w-]*):(.+)$/i);
           const routeChannel = channelHintMatch ? channelHintMatch[1].toLowerCase() : "webchat";
           const routePeerId = channelHintMatch ? channelHintMatch[2] : webchatUser;
           const route = resolveAgentRoute({
