@@ -11,7 +11,7 @@ import { resolveConfigDir } from "../utils.js";
 import { detectMime, extensionForMime } from "./mime.js";
 
 const resolveMediaDir = () => path.join(resolveConfigDir(), "media");
-export const MEDIA_MAX_BYTES = 5 * 1024 * 1024; // 5MB default
+export const MEDIA_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 const MAX_BYTES = MEDIA_MAX_BYTES;
 const DEFAULT_TTL_MS = 2 * 60 * 1000; // 2 minutes
 // Files are intentionally readable by non-owner UIDs so Docker sandbox containers can access

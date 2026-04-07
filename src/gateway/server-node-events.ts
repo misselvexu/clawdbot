@@ -360,7 +360,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       if (normalizedAttachments.length > 0) {
         try {
           const parsed = await parseMessageWithAttachments(message, normalizedAttachments, {
-            maxBytes: 5_000_000,
+            maxBytes: 30_000_000,
             log: ctx.logGateway,
           });
           message = parsed.message.trim();
