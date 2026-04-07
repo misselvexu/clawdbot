@@ -199,6 +199,7 @@ export async function createBundleMcpToolRuntime(params: {
               const result = (await client.callTool({
                 name: tool.name,
                 arguments: isRecord(input) ? input : {},
+                _meta: { openclaw_workspace: params.workspaceDir },
               })) as CallToolResult;
               return toAgentToolResult({
                 serverName,
