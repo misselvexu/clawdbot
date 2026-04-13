@@ -1226,6 +1226,13 @@ export function attachGatewayWsMessageHandler(params: {
           }
         }
 
+        // Reconcile sensitive snapshot fields after scope downgrade
+        if (!scopes.includes(ADMIN_SCOPE)) {
+          delete snapshot.configPath;
+          delete snapshot.stateDir;
+          delete snapshot.authMode;
+        }
+
         const cachedHealth = getHealthCache();
         if (cachedHealth) {
           snapshot.health = cachedHealth;
