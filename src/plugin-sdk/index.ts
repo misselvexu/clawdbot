@@ -64,10 +64,11 @@ export type {
 export type {
   BoundTaskFlowsRuntime,
   BoundTaskRunsRuntime,
+  DetachedTaskLifecycleRuntime,
   PluginRuntimeTaskFlows,
   PluginRuntimeTaskRuns,
   PluginRuntimeTasks,
-} from "../plugins/runtime/runtime-tasks.js";
+} from "../plugins/runtime/runtime-tasks.types.js";
 export type {
   TaskFlowDetail,
   TaskFlowView,

@@ -1,3 +1,5 @@
+import { resolveOpenClawAgentDir } from "openclaw/plugin-sdk/provider-auth";
+import { bridgeCodexAppServerStartOptions } from "./auth-bridge.js";
 import { CodexAppServerClient } from "./client.js";
 import {
   codexAppServerStartOptionsKey,
@@ -25,9 +27,14 @@ function getSharedCodexAppServerClientState(): SharedCodexAppServerClientState {
 export async function getSharedCodexAppServerClient(options?: {
   startOptions?: CodexAppServerStartOptions;
   timeoutMs?: number;
+  authProfileId?: string;
 }): Promise<CodexAppServerClient> {
   const state = getSharedCodexAppServerClientState();
-  const startOptions = options?.startOptions ?? resolveCodexAppServerRuntimeOptions().start;
+  const startOptions = await bridgeCodexAppServerStartOptions({
+    startOptions: options?.startOptions ?? resolveCodexAppServerRuntimeOptions().start,
+    agentDir: resolveOpenClawAgentDir(),
+    authProfileId: options?.authProfileId,
+  });
   const key = codexAppServerStartOptionsKey(startOptions);
   if (state.key && state.key !== key) {
     clearSharedCodexAppServerClient();
@@ -55,6 +62,28 @@ export async function getSharedCodexAppServerClient(options?: {
     );
   } catch (error) {
     clearSharedCodexAppServerClient();
+    throw error;
+  }
+}
+
+export async function createIsolatedCodexAppServerClient(options?: {
+  startOptions?: CodexAppServerStartOptions;
+  timeoutMs?: number;
+  authProfileId?: string;
+}): Promise<CodexAppServerClient> {
+  const startOptions = await bridgeCodexAppServerStartOptions({
+    startOptions: options?.startOptions ?? resolveCodexAppServerRuntimeOptions().start,
+    agentDir: resolveOpenClawAgentDir(),
+    authProfileId: options?.authProfileId,
+  });
+  const client = CodexAppServerClient.start(startOptions);
+  const initialize = client.initialize();
+  try {
+    await withTimeout(initialize, options?.timeoutMs ?? 0, "codex app-server initialize timed out");
+    return client;
+  } catch (error) {
+    client.close();
+    await initialize.catch(() => undefined);
     throw error;
   }
 }

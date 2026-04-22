@@ -67,6 +67,9 @@ import type {
 import type { VideoGenerationProvider } from "../video-generation/types.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
 import type {
+  CliBackendAuthEpochMode,
+  CliBackendPreparedExecution,
+  CliBackendPrepareExecutionContext,
   CliBackendPlugin,
   CliBundleMcpMode,
   PluginTextReplacement,
@@ -89,6 +92,11 @@ import type {
 import type { PluginKind } from "./plugin-kind.types.js";
 import type { PluginOrigin } from "./plugin-origin.types.js";
 import type { SecretInputMode } from "./provider-auth-types.js";
+import type {
+  ProviderApplyConfigDefaultsContext,
+  ProviderNormalizeConfigContext,
+  ProviderResolveConfigApiKeyContext,
+} from "./provider-config-context.types.js";
 import type {
   ProviderExternalAuthProfile,
   ProviderExternalOAuthProfile,
@@ -136,6 +144,9 @@ export type {
   PluginConversationBindingResolutionDecision,
 } from "./conversation-binding.types.js";
 export type {
+  CliBackendAuthEpochMode,
+  CliBackendPreparedExecution,
+  CliBackendPrepareExecutionContext,
   CliBackendPlugin,
   CliBundleMcpMode,
   PluginTextReplacement,
@@ -432,16 +443,11 @@ export type ProviderNormalizeModelIdContext = {
   modelId: string;
 };
 
-/**
- * Provider-owned config normalization for `models.providers.<id>` entries.
- *
- * Use this for provider-specific config cleanup that should stay with the
- * plugin rather than in core config-policy tables.
- */
-export type ProviderNormalizeConfigContext = {
-  provider: string;
-  providerConfig: ModelProviderConfig;
-};
+export type {
+  ProviderApplyConfigDefaultsContext,
+  ProviderNormalizeConfigContext,
+  ProviderResolveConfigApiKeyContext,
+} from "./provider-config-context.types.js";
 
 /**
  * Provider-owned transport normalization for arbitrary provider/model config.
@@ -454,17 +460,6 @@ export type ProviderNormalizeTransportContext = {
   provider: string;
   api?: string | null;
   baseUrl?: string;
-};
-
-/**
- * Provider-owned env/config auth marker resolution for `models.providers`.
- *
- * Use this when a provider resolves auth from env vars that do not follow the
- * generic API-key conventions.
- */
-export type ProviderResolveConfigApiKeyContext = {
-  provider: string;
-  env: NodeJS.ProcessEnv;
 };
 
 /**
@@ -798,18 +793,6 @@ export type ProviderFailoverErrorContext = {
   provider?: string;
   modelId?: string;
   errorMessage: string;
-};
-
-/**
- * Provider-owned config-default application input.
- *
- * Use this when a provider needs to add global config defaults that depend on
- * provider auth mode or provider-specific model families.
- */
-export type ProviderApplyConfigDefaultsContext = {
-  provider: string;
-  config: OpenClawConfig;
-  env: NodeJS.ProcessEnv;
 };
 
 /**
@@ -1425,6 +1408,18 @@ export type ProviderPlugin = {
    */
   supportsXHighThinking?: (ctx: ProviderThinkingPolicyContext) => boolean | undefined;
   /**
+   * Provider-owned adaptive thinking support.
+   *
+   * Return true only for models that should expose the `adaptive` thinking level.
+   */
+  supportsAdaptiveThinking?: (ctx: ProviderThinkingPolicyContext) => boolean | undefined;
+  /**
+   * Provider-owned max thinking support.
+   *
+   * Return true only for models that should expose the `max` thinking level.
+   */
+  supportsMaxThinking?: (ctx: ProviderThinkingPolicyContext) => boolean | undefined;
+  /**
    * Provider-owned default thinking level.
    *
    * Use this to keep model-family defaults (for example Claude 4.6 =>
@@ -1432,7 +1427,17 @@ export type ProviderPlugin = {
    */
   resolveDefaultThinkingLevel?: (
     ctx: ProviderDefaultThinkingPolicyContext,
-  ) => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive" | null | undefined;
+  ) =>
+    | "off"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "adaptive"
+    | "max"
+    | null
+    | undefined;
   /**
    * Provider-owned system-prompt contribution.
    *
@@ -1733,7 +1738,9 @@ export type OpenClawPluginCommandDefinition = {
    * `default` applies to all native providers unless a provider-specific
    * override exists.
    */
-  nativeProgressMessages?: Partial<Record<string, string>> & { default?: string };
+  nativeProgressMessages?: Partial<Record<string, string>> & {
+    default?: string;
+  };
   /** Description shown in /help and command menus */
   description: string;
   /** Whether this command accepts arguments */
@@ -1859,13 +1866,11 @@ export type OpenClawPluginDefinition = {
   reload?: OpenClawPluginReloadRegistration;
   nodeHostCommands?: OpenClawPluginNodeHostCommand[];
   securityAuditCollectors?: OpenClawPluginSecurityAuditCollector[];
-  register?: (api: OpenClawPluginApi) => void | Promise<void>;
-  activate?: (api: OpenClawPluginApi) => void | Promise<void>;
+  register?: (api: OpenClawPluginApi) => void;
+  activate?: (api: OpenClawPluginApi) => void;
 };
 
-export type OpenClawPluginModule =
-  | OpenClawPluginDefinition
-  | ((api: OpenClawPluginApi) => void | Promise<void>);
+export type OpenClawPluginModule = OpenClawPluginDefinition | ((api: OpenClawPluginApi) => void);
 
 export type PluginRegistrationMode = "full" | "setup-only" | "setup-runtime" | "cli-metadata";
 
@@ -1997,6 +2002,10 @@ export type OpenClawPluginApi = {
   ) => void;
   /** Register an agent harness implementation. */
   registerAgentHarness: (harness: AgentHarness) => void;
+  /** Register the active detached task runtime for this plugin (exclusive slot). */
+  registerDetachedTaskRuntime: (
+    runtime: import("./runtime/runtime-tasks.types.js").DetachedTaskLifecycleRuntime,
+  ) => void;
   /** Register the active memory capability for this memory plugin (exclusive slot). */
   registerMemoryCapability: (
     capability: import("./memory-state.js").MemoryPluginCapability,

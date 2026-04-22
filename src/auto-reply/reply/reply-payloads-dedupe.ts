@@ -1,5 +1,5 @@
 import { isMessagingToolDuplicate } from "../../agents/pi-embedded-helpers.js";
-import type { MessagingToolSend } from "../../agents/pi-embedded-runner.js";
+import type { MessagingToolSend } from "../../agents/pi-embedded-messaging.types.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import { normalizeAnyChannelId } from "../../channels/registry.js";
 import { normalizeTargetForProvider } from "../../infra/outbound/target-normalization.js";
@@ -57,11 +57,10 @@ export function filterMessagingToolMediaDuplicates(params: {
     if (!stripSingle && (!mediaUrls || filteredUrls?.length === mediaUrls.length)) {
       return payload;
     }
-    return {
-      ...payload,
+    return Object.assign({}, payload, {
       mediaUrl: stripSingle ? undefined : mediaUrl,
       mediaUrls: filteredUrls?.length ? filteredUrls : undefined,
-    };
+    });
   });
 }
 

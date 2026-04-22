@@ -30,6 +30,9 @@ type BundleMcpSession = {
 
 type LoadedMcpConfig = ReturnType<typeof loadEmbeddedPiMcpConfig>;
 type ListedTool = Awaited<ReturnType<Client["listTools"]>>["tools"][number];
+type CreateSessionMcpRuntime = (
+  params: Parameters<typeof createSessionMcpRuntime>[0] & { configFingerprint?: string },
+) => SessionMcpRuntime;
 
 const SESSION_MCP_RUNTIME_MANAGER_KEY = Symbol.for("openclaw.sessionMcpRuntimeManager");
 
@@ -290,9 +293,12 @@ export function createSessionMcpRuntime(params: {
   };
 }
 
-function createSessionMcpRuntimeManager(): SessionMcpRuntimeManager {
+function createSessionMcpRuntimeManager(
+  opts: { createRuntime?: CreateSessionMcpRuntime } = {},
+): SessionMcpRuntimeManager {
   const runtimesBySessionId = new Map<string, SessionMcpRuntime>();
   const sessionIdBySessionKey = new Map<string, string>();
+  const createRuntime = opts.createRuntime ?? createSessionMcpRuntime;
   const createInFlight = new Map<
     string,
     {
@@ -339,11 +345,12 @@ function createSessionMcpRuntimeManager(): SessionMcpRuntimeManager {
         await staleRuntime?.dispose();
       }
       const created = Promise.resolve(
-        createSessionMcpRuntime({
+        createRuntime({
           sessionId: params.sessionId,
           sessionKey: params.sessionKey,
           workspaceDir: params.workspaceDir,
           cfg: params.cfg,
+          configFingerprint: nextFingerprint,
         }),
       ).then((runtime) => {
         runtime.markUsed();
@@ -435,6 +442,7 @@ export async function disposeAllSessionMcpRuntimes(): Promise<void> {
 }
 
 export const __testing = {
+  createSessionMcpRuntimeManager,
   async resetSessionMcpRuntimeManager() {
     await disposeAllSessionMcpRuntimes();
   },

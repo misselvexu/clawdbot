@@ -671,7 +671,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   type: "string",
                   title: "Browser Profile User Data Dir",
                   description:
-                    "Per-profile Chromium user data directory for existing-session attachment through Chrome DevTools MCP. Use this for host-local Brave, Edge, Chromium, or non-default Chrome profiles when the built-in auto-connect path would pick the wrong browser data directory.",
+                    "Per-profile Chromium user data directory for existing-session attachment through Chrome DevTools MCP. Use this for Brave, Edge, Chromium, or non-default Chrome profiles when the built-in auto-connect path would pick the wrong browser data directory on the selected host or browser node.",
                 },
                 driver: {
                   anyOf: [
@@ -690,7 +690,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   ],
                   title: "Browser Profile Driver",
                   description:
-                    'Per-profile browser driver mode. Use "openclaw" (or legacy "clawd") for CDP-based profiles, or use "existing-session" for host-local Chrome DevTools MCP attachment.',
+                    'Per-profile browser driver mode. Use "openclaw" (or legacy "clawd") for CDP-based profiles, or use "existing-session" for Chrome DevTools MCP attachment on the selected host or browser node.',
                 },
                 attachOnly: {
                   type: "boolean",
@@ -2767,6 +2767,51 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                           cacheWrite: {
                             type: "number",
                           },
+                          tieredPricing: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                input: {
+                                  type: "number",
+                                },
+                                output: {
+                                  type: "number",
+                                },
+                                cacheRead: {
+                                  type: "number",
+                                },
+                                cacheWrite: {
+                                  type: "number",
+                                },
+                                range: {
+                                  anyOf: [
+                                    {
+                                      type: "array",
+                                      items: [
+                                        {
+                                          type: "number",
+                                        },
+                                        {
+                                          type: "number",
+                                        },
+                                      ],
+                                    },
+                                    {
+                                      type: "array",
+                                      items: [
+                                        {
+                                          type: "number",
+                                        },
+                                      ],
+                                    },
+                                  ],
+                                },
+                              },
+                              required: ["input", "output", "cacheRead", "cacheWrite", "range"],
+                              additionalProperties: false,
+                            },
+                          },
                         },
                         additionalProperties: false,
                       },
@@ -2798,6 +2843,9 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                           supportsStore: {
                             type: "boolean",
                           },
+                          supportsPromptCacheKey: {
+                            type: "boolean",
+                          },
                           supportsDeveloperRole: {
                             type: "boolean",
                           },
@@ -2815,6 +2863,13 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                           },
                           requiresStringContent: {
                             type: "boolean",
+                          },
+                          visibleReasoningDetailTypes: {
+                            type: "array",
+                            items: {
+                              type: "string",
+                              minLength: 1,
+                            },
                           },
                           maxTokensField: {
                             anyOf: [
@@ -3200,6 +3255,63 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 description:
                   "Optional default skill allowlist inherited by agents that omit agents.list[].skills. Omit for unrestricted skills, set [] to give inheriting agents no skills, and remember explicit agents.list[].skills replaces this default instead of merging with it.",
               },
+              silentReply: {
+                type: "object",
+                properties: {
+                  direct: {
+                    anyOf: [
+                      {
+                        type: "string",
+                        const: "allow",
+                      },
+                      {
+                        type: "string",
+                        const: "disallow",
+                      },
+                    ],
+                  },
+                  group: {
+                    anyOf: [
+                      {
+                        type: "string",
+                        const: "allow",
+                      },
+                      {
+                        type: "string",
+                        const: "disallow",
+                      },
+                    ],
+                  },
+                  internal: {
+                    anyOf: [
+                      {
+                        type: "string",
+                        const: "allow",
+                      },
+                      {
+                        type: "string",
+                        const: "disallow",
+                      },
+                    ],
+                  },
+                },
+                additionalProperties: false,
+              },
+              silentReplyRewrite: {
+                type: "object",
+                properties: {
+                  direct: {
+                    type: "boolean",
+                  },
+                  group: {
+                    type: "boolean",
+                  },
+                  internal: {
+                    type: "boolean",
+                  },
+                },
+                additionalProperties: false,
+              },
               repoRoot: {
                 type: "string",
                 title: "Repo Root",
@@ -3233,7 +3345,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 maximum: 9007199254740991,
                 title: "Bootstrap Max Chars",
                 description:
-                  "Max characters of each workspace bootstrap file injected into the system prompt before truncation (default: 20000).",
+                  "Max characters of each workspace bootstrap file injected into the system prompt before truncation (default: 12000).",
               },
               bootstrapTotalMaxChars: {
                 type: "integer",
@@ -3241,7 +3353,22 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 maximum: 9007199254740991,
                 title: "Bootstrap Total Max Chars",
                 description:
-                  "Max total characters across all injected workspace bootstrap files (default: 150000).",
+                  "Max total characters across all injected workspace bootstrap files (default: 60000).",
+              },
+              experimental: {
+                type: "object",
+                properties: {
+                  localModelLean: {
+                    type: "boolean",
+                    title: "Enable Lean Local Model Mode (Experimental)",
+                    description:
+                      "Experimental local-model prompt trim. When enabled, OpenClaw drops heavyweight default tools like browser, cron, and message for weaker or smaller local-model backends.",
+                  },
+                },
+                additionalProperties: false,
+                title: "Experimental Agent Flags",
+                description:
+                  "Experimental agent-default flags. Keep these off unless you are intentionally testing a preview surface.",
               },
               bootstrapPromptTruncationWarning: {
                 anyOf: [
@@ -3264,6 +3391,112 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
               },
               userTimezone: {
                 type: "string",
+              },
+              startupContext: {
+                type: "object",
+                properties: {
+                  enabled: {
+                    type: "boolean",
+                    title: "Enable Startup Context",
+                    description:
+                      "Enable the startup-context prelude for bare session resets (default: true). Disable this to fall back to prompt-only behavior with no runtime-loaded daily memory.",
+                  },
+                  applyOn: {
+                    type: "array",
+                    items: {
+                      anyOf: [
+                        {
+                          type: "string",
+                          const: "new",
+                        },
+                        {
+                          type: "string",
+                          const: "reset",
+                        },
+                      ],
+                    },
+                    title: "Startup Context Apply On",
+                    description:
+                      'Chooses which bare reset commands get startup context: include "new", "reset", or both (default: ["new","reset"]).',
+                  },
+                  dailyMemoryDays: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 14,
+                    title: "Startup Context Daily Memory Days",
+                    description:
+                      "Number of dated memory files to load counting backward from today in the configured user timezone (default: 2 for today + yesterday).",
+                  },
+                  maxFileBytes: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 65536,
+                    title: "Startup Context Max File Bytes",
+                    description:
+                      "Maximum bytes allowed per daily memory file when building startup context (default: 16384). Files over this boundary-safe read limit are skipped.",
+                  },
+                  maxFileChars: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 10000,
+                    title: "Startup Context Max File Chars",
+                    description:
+                      "Maximum characters retained from each loaded daily memory file in the startup prelude (default: 1200).",
+                  },
+                  maxTotalChars: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 50000,
+                    title: "Startup Context Max Total Chars",
+                    description:
+                      "Maximum total characters retained across all loaded daily memory files in the startup prelude (default: 2800). Additional files are truncated from the prelude once this cap is reached.",
+                  },
+                },
+                additionalProperties: false,
+                title: "Startup Context",
+                description:
+                  'Runtime-owned first-turn prelude for bare "/new" and "/reset". Use this to control whether recent daily memory files are preloaded into the first prompt instead of asking the model to decide what to read.',
+              },
+              contextLimits: {
+                type: "object",
+                properties: {
+                  memoryGetMaxChars: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 250000,
+                    title: "Default memory_get Max Chars",
+                    description:
+                      "Default max characters returned by memory_get before truncation metadata and continuation notice are added. Increase to approximate older larger excerpts, but keep it bounded.",
+                  },
+                  memoryGetDefaultLines: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 5000,
+                    title: "Default memory_get Line Window",
+                    description:
+                      "Default memory_get line window used when requests omit lines. This controls how many source lines are selected before the max-char cap is applied.",
+                  },
+                  toolResultMaxChars: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 250000,
+                    title: "Default Tool Result Max Chars",
+                    description:
+                      "Default max characters kept for a single live tool result before truncation. This affects both persisted live tool-result writes and overflow-recovery truncation heuristics.",
+                  },
+                  postCompactionMaxChars: {
+                    type: "integer",
+                    minimum: 1,
+                    maximum: 50000,
+                    title: "Default Post-compaction Max Chars",
+                    description:
+                      "Default max characters retained from AGENTS.md during post-compaction context refresh injection. Lower this to make compaction recovery cheaper, or raise it for agents that depend on longer startup guidance.",
+                  },
+                },
+                additionalProperties: false,
+                title: "Default Context Limits",
+                description:
+                  "Focused per-agent-context budget defaults for selected high-volume excerpts and injected prompt blocks. Use this to tune bounded read/injection sizes without reopening any unbounded call paths.",
               },
               timeFormat: {
                 anyOf: [
@@ -3720,7 +3953,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                     type: "string",
                     title: "Memory Search Provider",
                     description:
-                      'Selects the embedding backend used to build/query memory vectors: "openai", "gemini", "voyage", "mistral", "bedrock", "ollama", or "local". Keep your most reliable provider here and configure fallback for resilience.',
+                      'Selects the embedding backend used to build/query memory vectors: "openai", "gemini", "voyage", "mistral", "bedrock", "lmstudio", "ollama", or "local". Keep your most reliable provider here and configure fallback for resilience.',
                   },
                   remote: {
                     type: "object",
@@ -3861,7 +4094,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                     type: "string",
                     title: "Memory Search Fallback",
                     description:
-                      'Backup provider used when primary embeddings fail: "openai", "gemini", "voyage", "mistral", "ollama", "local", or "none". Set a real fallback for production reliability; use "none" only if you prefer explicit failures.',
+                      'Backup provider used when primary embeddings fail: "openai", "gemini", "voyage", "mistral", "bedrock", "lmstudio", "ollama", "local", or "none". Set a real fallback for production reliability; use "none" only if you prefer explicit failures.',
                   },
                   model: {
                     type: "string",
@@ -4459,7 +4692,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                     type: "boolean",
                     title: "Compaction Notify User",
                     description:
-                      "When enabled, sends a brief compaction notice to the user (e.g. '🧹 Compacting context...') when compaction starts. Disabled by default to keep compaction silent and non-intrusive.",
+                      "When enabled, sends brief compaction notices to the user when compaction starts and when it completes (for example, '🧹 Compacting context...' and '🧹 Compaction complete'). Disabled by default to keep compaction silent and non-intrusive.",
                   },
                 },
                 additionalProperties: false,
@@ -4539,6 +4772,10 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   {
                     type: "string",
                     const: "adaptive",
+                  },
+                  {
+                    type: "string",
+                    const: "max",
                   },
                 ],
               },
@@ -5514,7 +5751,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 },
                 thinkingDefault: {
                   type: "string",
-                  enum: ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive"],
+                  enum: ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"],
                   title: "Agent Thinking Default",
                   description:
                     "Optional per-agent default thinking level. Overrides agents.defaults.thinkingDefault for this agent when no per-message or session override is set.",
@@ -5991,6 +6228,64 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                     },
                   },
                   additionalProperties: false,
+                },
+                skillsLimits: {
+                  type: "object",
+                  properties: {
+                    maxSkillsPromptChars: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                      title: "Agent Skills Prompt Max Chars",
+                      description:
+                        "Per-agent override for the skills prompt character budget. This extends the existing skills.limits.maxSkillsPromptChars path instead of routing the same budget through contextLimits.",
+                    },
+                  },
+                  additionalProperties: false,
+                  title: "Agent Skills Limits",
+                  description:
+                    "Optional per-agent overrides for skills subsystem budgets. Use this when an agent needs a different skills prompt budget without introducing a second generic context-limits path.",
+                },
+                contextLimits: {
+                  type: "object",
+                  properties: {
+                    memoryGetMaxChars: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 250000,
+                      title: "Agent memory_get Max Chars",
+                      description:
+                        "Per-agent override for the default memory_get max character budget.",
+                    },
+                    memoryGetDefaultLines: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 5000,
+                      title: "Agent memory_get Line Window",
+                      description:
+                        "Per-agent override for the default memory_get line window when lines is omitted.",
+                    },
+                    toolResultMaxChars: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 250000,
+                      title: "Agent Tool Result Max Chars",
+                      description:
+                        "Per-agent override for the live tool-result max character budget.",
+                    },
+                    postCompactionMaxChars: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 50000,
+                      title: "Agent Post-compaction Max Chars",
+                      description:
+                        "Per-agent override for the post-compaction AGENTS.md excerpt budget.",
+                    },
+                  },
+                  additionalProperties: false,
+                  title: "Agent Context Limits",
+                  description:
+                    "Optional per-agent overrides for the focused context budget knobs. Omitted fields inherit agents.defaults.contextLimits.",
                 },
                 heartbeat: {
                   type: "object",
@@ -6993,6 +7288,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                           maximum: 9007199254740991,
                         },
                         warningThreshold: {
+                          type: "integer",
+                          exclusiveMinimum: 0,
+                          maximum: 9007199254740991,
+                        },
+                        unknownToolThreshold: {
                           type: "integer",
                           exclusiveMinimum: 0,
                           maximum: 9007199254740991,
@@ -16888,6 +17188,14 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 description:
                   "Warning threshold for repetitive patterns when detector is enabled (default: 10).",
               },
+              unknownToolThreshold: {
+                type: "integer",
+                exclusiveMinimum: 0,
+                maximum: 9007199254740991,
+                title: "Unknown-tool Loop Threshold",
+                description:
+                  "Block repeated calls to the same unavailable tool after this many misses (default: 10).",
+              },
               criticalThreshold: {
                 type: "integer",
                 exclusiveMinimum: 0,
@@ -22525,6 +22833,75 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
         description:
           "Plugin system controls for enabling extensions, constraining load scope, configuring entries, and tracking installs. Keep plugin policy explicit and least-privilege in production environments.",
       },
+      surfaces: {
+        type: "object",
+        propertyNames: {
+          type: "string",
+        },
+        additionalProperties: {
+          type: "object",
+          properties: {
+            silentReply: {
+              type: "object",
+              properties: {
+                direct: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      const: "allow",
+                    },
+                    {
+                      type: "string",
+                      const: "disallow",
+                    },
+                  ],
+                },
+                group: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      const: "allow",
+                    },
+                    {
+                      type: "string",
+                      const: "disallow",
+                    },
+                  ],
+                },
+                internal: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      const: "allow",
+                    },
+                    {
+                      type: "string",
+                      const: "disallow",
+                    },
+                  ],
+                },
+              },
+              additionalProperties: false,
+            },
+            silentReplyRewrite: {
+              type: "object",
+              properties: {
+                direct: {
+                  type: "boolean",
+                },
+                group: {
+                  type: "boolean",
+                },
+                internal: {
+                  type: "boolean",
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          additionalProperties: false,
+        },
+      },
     },
     required: ["commands"],
     additionalProperties: false,
@@ -23010,6 +23387,31 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       help: "Shared default settings inherited by agents unless overridden per entry in agents.list. Use defaults to enforce consistent baseline behavior and reduce duplicated per-agent configuration.",
       tags: ["advanced"],
     },
+    "agents.defaults.contextLimits": {
+      label: "Default Context Limits",
+      help: "Focused per-agent-context budget defaults for selected high-volume excerpts and injected prompt blocks. Use this to tune bounded read/injection sizes without reopening any unbounded call paths.",
+      tags: ["performance"],
+    },
+    "agents.defaults.contextLimits.memoryGetMaxChars": {
+      label: "Default memory_get Max Chars",
+      help: "Default max characters returned by memory_get before truncation metadata and continuation notice are added. Increase to approximate older larger excerpts, but keep it bounded.",
+      tags: ["performance"],
+    },
+    "agents.defaults.contextLimits.memoryGetDefaultLines": {
+      label: "Default memory_get Line Window",
+      help: "Default memory_get line window used when requests omit lines. This controls how many source lines are selected before the max-char cap is applied.",
+      tags: ["performance"],
+    },
+    "agents.defaults.contextLimits.toolResultMaxChars": {
+      label: "Default Tool Result Max Chars",
+      help: "Default max characters kept for a single live tool result before truncation. This affects both persisted live tool-result writes and overflow-recovery truncation heuristics.",
+      tags: ["performance"],
+    },
+    "agents.defaults.contextLimits.postCompactionMaxChars": {
+      label: "Default Post-compaction Max Chars",
+      help: "Default max characters retained from AGENTS.md during post-compaction context refresh injection. Lower this to make compaction recovery cheaper, or raise it for agents that depend on longer startup guidance.",
+      tags: ["performance"],
+    },
     "agents.defaults.embeddedHarness": {
       label: "Default Embedded Harness",
       help: "Default embedded agent harness policy. Use runtime=auto for plugin harness selection, runtime=pi for built-in PI, or a registered harness id such as codex.",
@@ -23029,6 +23431,41 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       label: "Agent List",
       help: "Explicit list of configured agents with IDs and optional overrides for model, tools, identity, and workspace. Keep IDs stable over time so bindings, approvals, and session routing remain deterministic.",
       tags: ["advanced"],
+    },
+    "agents.list[].skillsLimits": {
+      label: "Agent Skills Limits",
+      help: "Optional per-agent overrides for skills subsystem budgets. Use this when an agent needs a different skills prompt budget without introducing a second generic context-limits path.",
+      tags: ["performance"],
+    },
+    "agents.list[].skillsLimits.maxSkillsPromptChars": {
+      label: "Agent Skills Prompt Max Chars",
+      help: "Per-agent override for the skills prompt character budget. This extends the existing skills.limits.maxSkillsPromptChars path instead of routing the same budget through contextLimits.",
+      tags: ["performance"],
+    },
+    "agents.list[].contextLimits": {
+      label: "Agent Context Limits",
+      help: "Optional per-agent overrides for the focused context budget knobs. Omitted fields inherit agents.defaults.contextLimits.",
+      tags: ["performance"],
+    },
+    "agents.list[].contextLimits.memoryGetMaxChars": {
+      label: "Agent memory_get Max Chars",
+      help: "Per-agent override for the default memory_get max character budget.",
+      tags: ["performance"],
+    },
+    "agents.list[].contextLimits.memoryGetDefaultLines": {
+      label: "Agent memory_get Line Window",
+      help: "Per-agent override for the default memory_get line window when lines is omitted.",
+      tags: ["performance"],
+    },
+    "agents.list[].contextLimits.toolResultMaxChars": {
+      label: "Agent Tool Result Max Chars",
+      help: "Per-agent override for the live tool-result max character budget.",
+      tags: ["performance"],
+    },
+    "agents.list[].contextLimits.postCompactionMaxChars": {
+      label: "Agent Post-compaction Max Chars",
+      help: "Per-agent override for the post-compaction AGENTS.md excerpt budget.",
+      tags: ["performance"],
     },
     "agents.list.*.embeddedHarness": {
       label: "Agent Embedded Harness",
@@ -23275,7 +23712,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     "browser.cdpUrl": {
       label: "Browser CDP URL",
       help: "Remote CDP websocket URL used to attach to an externally managed browser instance. Use this for centralized browser hosts and keep URL access restricted to trusted network paths.",
-      tags: ["advanced"],
+      tags: ["advanced", "url-secret"],
     },
     "browser.color": {
       label: "Browser Accent Color",
@@ -23325,16 +23762,16 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     "browser.profiles.*.cdpUrl": {
       label: "Browser Profile CDP URL",
       help: "Per-profile CDP websocket URL used for explicit remote browser routing by profile name. Use this when profile connections terminate on remote hosts or tunnels.",
-      tags: ["storage"],
+      tags: ["storage", "url-secret"],
     },
     "browser.profiles.*.userDataDir": {
       label: "Browser Profile User Data Dir",
-      help: "Per-profile Chromium user data directory for existing-session attachment through Chrome DevTools MCP. Use this for host-local Brave, Edge, Chromium, or non-default Chrome profiles when the built-in auto-connect path would pick the wrong browser data directory.",
+      help: "Per-profile Chromium user data directory for existing-session attachment through Chrome DevTools MCP. Use this for Brave, Edge, Chromium, or non-default Chrome profiles when the built-in auto-connect path would pick the wrong browser data directory on the selected host or browser node.",
       tags: ["storage"],
     },
     "browser.profiles.*.driver": {
       label: "Browser Profile Driver",
-      help: 'Per-profile browser driver mode. Use "openclaw" (or legacy "clawd") for CDP-based profiles, or use "existing-session" for host-local Chrome DevTools MCP attachment.',
+      help: 'Per-profile browser driver mode. Use "openclaw" (or legacy "clawd") for CDP-based profiles, or use "existing-session" for Chrome DevTools MCP attachment on the selected host or browser node.',
       tags: ["storage"],
     },
     "browser.profiles.*.attachOnly": {
@@ -23667,6 +24104,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     "tools.loopDetection.warningThreshold": {
       label: "Tool-loop Warning Threshold",
       help: "Warning threshold for repetitive patterns when detector is enabled (default: 10).",
+      tags: ["tools"],
+    },
+    "tools.loopDetection.unknownToolThreshold": {
+      label: "Unknown-tool Loop Threshold",
+      help: "Block repeated calls to the same unavailable tool after this many misses (default: 10).",
       tags: ["tools"],
     },
     "tools.loopDetection.criticalThreshold": {
@@ -24430,18 +24872,63 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     },
     "agents.defaults.bootstrapMaxChars": {
       label: "Bootstrap Max Chars",
-      help: "Max characters of each workspace bootstrap file injected into the system prompt before truncation (default: 20000).",
+      help: "Max characters of each workspace bootstrap file injected into the system prompt before truncation (default: 12000).",
       tags: ["performance"],
     },
     "agents.defaults.bootstrapTotalMaxChars": {
       label: "Bootstrap Total Max Chars",
-      help: "Max total characters across all injected workspace bootstrap files (default: 150000).",
+      help: "Max total characters across all injected workspace bootstrap files (default: 60000).",
       tags: ["performance"],
+    },
+    "agents.defaults.experimental": {
+      label: "Experimental Agent Flags",
+      help: "Experimental agent-default flags. Keep these off unless you are intentionally testing a preview surface.",
+      tags: ["security", "advanced"],
+    },
+    "agents.defaults.experimental.localModelLean": {
+      label: "Enable Lean Local Model Mode (Experimental)",
+      help: "Experimental local-model prompt trim. When enabled, OpenClaw drops heavyweight default tools like browser, cron, and message for weaker or smaller local-model backends.",
+      tags: ["security", "advanced"],
     },
     "agents.defaults.bootstrapPromptTruncationWarning": {
       label: "Bootstrap Prompt Truncation Warning",
       help: 'Inject agent-visible warning text when bootstrap files are truncated: "off", "once" (default), or "always".',
       tags: ["advanced"],
+    },
+    "agents.defaults.startupContext": {
+      label: "Startup Context",
+      help: 'Runtime-owned first-turn prelude for bare "/new" and "/reset". Use this to control whether recent daily memory files are preloaded into the first prompt instead of asking the model to decide what to read.',
+      tags: ["advanced"],
+    },
+    "agents.defaults.startupContext.enabled": {
+      label: "Enable Startup Context",
+      help: "Enable the startup-context prelude for bare session resets (default: true). Disable this to fall back to prompt-only behavior with no runtime-loaded daily memory.",
+      tags: ["advanced"],
+    },
+    "agents.defaults.startupContext.applyOn": {
+      label: "Startup Context Apply On",
+      help: 'Chooses which bare reset commands get startup context: include "new", "reset", or both (default: ["new","reset"]).',
+      tags: ["advanced"],
+    },
+    "agents.defaults.startupContext.dailyMemoryDays": {
+      label: "Startup Context Daily Memory Days",
+      help: "Number of dated memory files to load counting backward from today in the configured user timezone (default: 2 for today + yesterday).",
+      tags: ["advanced"],
+    },
+    "agents.defaults.startupContext.maxFileBytes": {
+      label: "Startup Context Max File Bytes",
+      help: "Maximum bytes allowed per daily memory file when building startup context (default: 16384). Files over this boundary-safe read limit are skipped.",
+      tags: ["performance", "storage"],
+    },
+    "agents.defaults.startupContext.maxFileChars": {
+      label: "Startup Context Max File Chars",
+      help: "Maximum characters retained from each loaded daily memory file in the startup prelude (default: 1200).",
+      tags: ["performance", "storage"],
+    },
+    "agents.defaults.startupContext.maxTotalChars": {
+      label: "Startup Context Max Total Chars",
+      help: "Maximum total characters retained across all loaded daily memory files in the startup prelude (default: 2800). Additional files are truncated from the prelude once this cap is reached.",
+      tags: ["performance"],
     },
     "agents.defaults.envelopeTimezone": {
       label: "Envelope Timezone",
@@ -24530,7 +25017,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     },
     "agents.defaults.memorySearch.provider": {
       label: "Memory Search Provider",
-      help: 'Selects the embedding backend used to build/query memory vectors: "openai", "gemini", "voyage", "mistral", "bedrock", "ollama", or "local". Keep your most reliable provider here and configure fallback for resilience.',
+      help: 'Selects the embedding backend used to build/query memory vectors: "openai", "gemini", "voyage", "mistral", "bedrock", "lmstudio", "ollama", or "local". Keep your most reliable provider here and configure fallback for resilience.',
       tags: ["advanced"],
     },
     "agents.defaults.memorySearch.remote.baseUrl": {
@@ -24586,7 +25073,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     },
     "agents.defaults.memorySearch.fallback": {
       label: "Memory Search Fallback",
-      help: 'Backup provider used when primary embeddings fail: "openai", "gemini", "voyage", "mistral", "ollama", "local", or "none". Set a real fallback for production reliability; use "none" only if you prefer explicit failures.',
+      help: 'Backup provider used when primary embeddings fail: "openai", "gemini", "voyage", "mistral", "bedrock", "lmstudio", "ollama", "local", or "none". Set a real fallback for production reliability; use "none" only if you prefer explicit failures.',
       tags: ["reliability"],
     },
     "agents.defaults.memorySearch.local.modelPath": {
@@ -25412,7 +25899,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     },
     "agents.defaults.compaction.notifyUser": {
       label: "Compaction Notify User",
-      help: "When enabled, sends a brief compaction notice to the user (e.g. '🧹 Compacting context...') when compaction starts. Disabled by default to keep compaction silent and non-intrusive.",
+      help: "When enabled, sends brief compaction notices to the user when compaction starts and when it completes (for example, '🧹 Compacting context...' and '🧹 Compaction complete'). Disabled by default to keep compaction silent and non-intrusive.",
       tags: ["advanced"],
     },
     "agents.defaults.compaction.memoryFlush": {
@@ -27167,6 +27654,6 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       tags: ["advanced", "url-secret"],
     },
   },
-  version: "2026.4.11",
+  version: "2026.4.20",
   generatedAt: "2026-03-22T21:17:33.302Z",
 };
