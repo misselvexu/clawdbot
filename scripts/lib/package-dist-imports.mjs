@@ -167,5 +167,34 @@ export function expandPackageDistImportClosure(params) {
     }
   }
 
+  // PRIVATE FORK PATCH (pending upstream PR): keep root-runtime alias <-> hashed-sibling pairs
+  // together. Real consumers import the hashed bundle directly (e.g.
+  // `import "./abort.runtime-Bc5sEKqw.js"`) while the stable alias
+  // (`abort.runtime.js`, body: `export * from "./abort.runtime-...js"`) has no in-tree
+  // importer and would otherwise be pruned as "unreachable" — which crashes every channel
+  // dispatch on first message after `pnpm install` triggers `pruneInstalledPackageDist`.
+  // See docs/multi-user-architecture/UPGRADE-v2026.5.7.md Part IX for full root-cause.
+  const RUNTIME_ALIAS_PAIR_RE =
+    /^(?<dir>(?:.*\/)?dist\/(?:.+\/)?)(?<base>[^/]+)\.runtime(?:-[A-Za-z0-9_-]+)?\.js$/;
+  const aliasAdditions = new Set();
+  for (const file of expectedSet) {
+    const match = file.match(RUNTIME_ALIAS_PAIR_RE);
+    if (!match || !match.groups) continue;
+    const { dir, base } = match.groups;
+    const stable = `${dir}${base}.runtime.js`;
+    if (fileSet.has(stable) && !expectedSet.has(stable)) aliasAdditions.add(stable);
+    const hashedPrefix = `${dir}${base}.runtime-`;
+    for (const candidate of files) {
+      if (
+        candidate.startsWith(hashedPrefix) &&
+        candidate.endsWith(".js") &&
+        !expectedSet.has(candidate)
+      ) {
+        aliasAdditions.add(candidate);
+      }
+    }
+  }
+  for (const addition of aliasAdditions) expectedSet.add(addition);
+
   return [...expectedSet].toSorted((left, right) => left.localeCompare(right));
 }

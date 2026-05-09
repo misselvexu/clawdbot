@@ -922,6 +922,49 @@ export function runBundledPluginPostinstall(params = {}) {
     writeFileSync: params.writeFileSync,
     log,
   });
+  // PRIVATE FORK PATCH: soft warn if dispatch runtime aliases are missing.
+  // Fix A in scripts/lib/package-dist-imports.mjs prevents the deletion at the
+  // closure-expansion layer; this is the defensive net.
+  // See scripts/check-runtime-alias-files.mjs + UPGRADE-v2026.5.7.md Part IX.
+  try {
+    const checkPath = join(packageRoot, "scripts", "check-runtime-alias-files.mjs");
+    if (pathExists(checkPath)) {
+      const distDir = join(packageRoot, "dist");
+      // Inline minimal check (avoid dynamic import here — postinstall must be
+      // synchronous-safe and may run in restricted environments).
+      if (pathExists(distDir)) {
+        const entries = params.readdirSync(distDir);
+        const hashedRe = /^([^/]+)\.runtime-[A-Za-z0-9_-]+\.js$/;
+        const aliasRe = /^([^/]+)\.runtime\.js$/;
+        const hashedBases = new Set();
+        const aliasBases = new Set();
+        for (const entry of entries) {
+          const hashed = entry.match(hashedRe);
+          if (hashed) {
+            hashedBases.add(hashed[1]);
+            continue;
+          }
+          const alias = entry.match(aliasRe);
+          if (alias) aliasBases.add(alias[1]);
+        }
+        const missing = [];
+        for (const base of hashedBases) {
+          if (!aliasBases.has(base)) missing.push(`${base}.runtime.js`);
+        }
+        if (missing.length > 0) {
+          log(
+            `WARN: ${missing.length} dispatch runtime alias(es) missing under dist/: ${missing.sort().join(", ")}. ` +
+              `Channel message dispatch will crash with ERR_MODULE_NOT_FOUND on first message. ` +
+              `Run \`pnpm build\` to regenerate, or restore from a known-good dist. ` +
+              `See UPGRADE-v2026.5.7.md Part IX for root-cause.`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    // Sanity check failure must not break install
+    log(`(check-runtime-alias-files soft warn skipped: ${err?.message ?? String(err)})`);
+  }
 }
 
 export function isDirectPostinstallInvocation(params = {}) {

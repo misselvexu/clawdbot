@@ -94,6 +94,13 @@ export const BUILD_ALL_STEPS = [
     kind: "node",
     args: ["--import", "tsx", "scripts/write-cli-compat.ts"],
   },
+  {
+    // PRIVATE FORK PATCH: defensive gate to catch missing dispatch alias files
+    // (see scripts/check-runtime-alias-files.mjs + UPGRADE-v2026.5.7.md Part IX)
+    label: "check-runtime-alias-files",
+    kind: "node",
+    args: ["scripts/check-runtime-alias-files.mjs"],
+  },
 ];
 
 export const BUILD_ALL_PROFILES = {
