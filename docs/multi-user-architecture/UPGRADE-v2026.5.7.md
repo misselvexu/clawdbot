@@ -264,3 +264,83 @@ WeCom + feishu + weixin 收到消息但**回复 crash**：
 | 7 plugins loaded                                       | browser, discord, feishu, google, memory-core, openclaw-weixin, wecom-openclaw-plugin |
 | 3 systemd service active                               | gateway + auth-proxy + discord-tunnel                                                 |
 | 3 端口 LISTEN                                          | 18789 + 18790 + 18080                                                                 |
+
+---
+
+## Part IX：Runtime alias 持久化根因 + 三层防护（v2026.5.7 升级遗留）
+
+### 背景
+
+cutover 完成后两次出现 channel 全断（dispatch 报 `ERR_MODULE_NOT_FOUND` 找不到 `dist/abort.runtime.js` 等 4 个 alias 文件）。临时用 `cp` 从 trial worktree 恢复都能修，但每次 `pnpm openclaw plugins install` 或 `pnpm install` 后都会再丢。
+
+### 根因（双重 bug）
+
+**Bug A：postinstall closure expander 把 alias 当 unreachable 删掉**
+
+- `scripts/postinstall-bundled-plugins.mjs::pruneInstalledPackageDist` 用 `dist/postinstall-inventory.json` 作为 seed
+- 调用 `scripts/lib/package-dist-imports.mjs::expandPackageDistImportClosure` 做 BFS 找可达文件
+- 真实消费者 (`dispatch-XXX.js`) 直接 `import "./abort.runtime-Bc5sEKqw.js"`（hashed）
+- 稳定 alias `abort.runtime.js`（body：`export * from "./abort.runtime-Bc5sEKqw.js"`）**没有任何代码 import 它**
+- 所以 BFS 把 alias 判为 unreachable → `unlink` 删除
+- 每次 `pnpm install` 重复
+
+**Bug B：runtime-postbuild 在 alias 候选 ambiguous 时直接删除**
+
+- `scripts/runtime-postbuild.mjs::writeStableRootRuntimeAliases` 收集所有 `xxx.runtime-HASH.js` 候选
+- `resolveAliasCandidate` 试图找"wrapper"（其他 candidate re-export 自己的那个）
+- 找不到 wrapper → 返回 null → 旧代码 `fsImpl.rmSync?.(aliasPath, { force: true })` **删除 alias**
+- 我们 5 个新发现的 missing alias 走的是这个路径：approval-handler / channel / register.sync / send / status 都有 2-4 个候选都不互相 re-export
+
+### 三层防护（已 ship）
+
+| Fix   | 文件                                           | 时机            | 行为                                                                                              |
+| ----- | ---------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------- |
+| **A** | `scripts/lib/package-dist-imports.mjs:171-197` | install-time    | closure 末尾扫一遍 alias↔hashed 配对，把 stable alias 和所有 hashed sibling 一起加 keep-set       |
+| **D** | `scripts/runtime-postbuild.mjs:189-263`        | build-time      | ambiguous 时不删，先看现有 alias 是否仍指向有效 candidate（保留），否则按 mtime 选最新（warn）    |
+| **F** | `scripts/check-runtime-alias-files.mjs`        | build + install | 扫 `dist/` 找 `xxx.runtime-HASH.js`，确认 `xxx.runtime.js` 存在；缺失 → build fail / install warn |
+
+**install.runtime 例外**：marker-based 解析（plugin install vs daemon install API 不同），Fix D 不接管 —— 否则可能 mtime 选到错的实现。`writeStableRootRuntimeAliases` 内部判 `aliasFileName === PLUGIN_INSTALL_RUNTIME_ALIAS.aliasFileName` 时仍走原 `rmSync` 分支。
+
+### 验证
+
+```bash
+# build-time gate
+pnpm build   # 末尾应有 "[check-runtime-alias-files] OK: N runtime alias pair(s) intact under dist/"
+
+# 单独跑 sanity check
+node scripts/check-runtime-alias-files.mjs
+echo $?   # 0 = OK, 1 = missing alias
+
+# 单元测试
+pnpm test test/scripts/runtime-postbuild.test.ts          # Fix D + 既有
+pnpm test test/scripts/package-dist-imports.test.ts       # Fix A
+```
+
+### 维护 SOP
+
+- 任何 `pnpm openclaw plugins install`、`pnpm install`、`pnpm build` 后跑 `node scripts/check-runtime-alias-files.mjs` 查看输出
+- 出现 `ambiguous alias ... using newest=` warning 是**正常**的（Fix D 主动选 fallback，已 log 给运维）
+- 出现 `ERROR: dispatch runtime alias files missing` → Fix A/D 失效，立即从 `~/openclaw-upgrade-v2026.5.7/dist/` cp 兜底，然后 grep `pruneInstalledPackageDist` log 找下一个被遗漏的删除路径
+
+### 上游 PR
+
+Fix A + Fix D + Fix F + 两组 unit test 已计划提交到 `openclaw/openclaw`：
+
+- 原标题候选：`fix(scripts): preserve runtime alias↔hashed-sibling pairs (closure expander + ambiguous candidate handler)`
+- 复现：在 v2026.5.7 dist 上跑 `pnpm install` 两遍，第二遍 `dist/abort.runtime.js` 等会消失
+- 影响面：所有 v2026.5.7 部署都会踩，私有 fork 已 ship，公有用户暂时只能手工 `pnpm build` 兜底
+
+### 兜底方案（如三层防护都失效）
+
+```bash
+# 1) 从 trial worktree cp 全量 dist（已知 working）
+rm -rf ~/openclaw/dist && cp -a ~/openclaw-upgrade-v2026.5.7/dist/ ~/openclaw/dist/
+# 2) 或单独 cp 4 个最常见的 alias
+for f in abort.runtime.js get-reply-from-config.runtime.js route-reply.runtime.js runtime-plugins.runtime.js; do
+  cp ~/openclaw-upgrade-v2026.5.7/dist/$f ~/openclaw/dist/$f
+done
+# 3) restart
+systemctl --user restart openclaw-gateway.service
+```
+
+trial worktree (`~/openclaw-upgrade-v2026.5.7/`) 即使 patch 自洽后也建议保留 1-2 周作为 nuclear fallback，期间 production rebuild 多次确认无 regression 后再删。
