@@ -190,11 +190,85 @@ export function writeStableRootRuntimeAliases(params = {}) {
     const aliasPath = path.join(distDir, aliasFileName);
     const candidate = resolveAliasCandidate(aliasFileName, candidates);
     if (!candidate) {
-      fsImpl.rmSync?.(aliasPath, { force: true });
+      // install.runtime requires marker-based disambiguation: plugin install runtime
+      // vs daemon install runtime export different APIs and are NOT interchangeable.
+      // When markers fail, prefer no alias over a wrong one.
+      if (aliasFileName === PLUGIN_INSTALL_RUNTIME_ALIAS.aliasFileName) {
+        fsImpl.rmSync?.(aliasPath, { force: true });
+        continue;
+      }
+      // PRIVATE FORK PATCH (pending upstream PR): for dispatch / channel-runtime aliases,
+      // preserve existing valid alias OR pick newest candidate by mtime as fallback,
+      // instead of deleting (which leaves channel dispatch with ERR_MODULE_NOT_FOUND
+      // on first message). See docs/multi-user-architecture/UPGRADE-v2026.5.7.md Part IX.
+      const fallback = preserveOrPickFallbackAlias({
+        aliasPath,
+        candidates,
+        distDir,
+        fsImpl,
+      });
+      if (fallback) {
+        writeTextFileIfChanged(aliasPath, `export * from "./${fallback}";\n`);
+      }
+      // else: leave existing alias untouched (steady state) or absent (no candidates)
       continue;
     }
     writeTextFileIfChanged(aliasPath, `export * from "./${candidate}";\n`);
   }
+}
+
+// PRIVATE FORK PATCH (pending upstream PR): companion to Fix A in
+// scripts/lib/package-dist-imports.mjs. Fix A prevents alias deletion at
+// install time; Fix D (this) prevents alias deletion at build time when
+// `resolveAliasCandidate` returns null because multiple candidates have no
+// clear wrapper relationship.
+//
+// Behavior:
+//   1. If alias file exists and points to a candidate that is still in `candidates`,
+//      keep it as-is (returns null, caller does nothing). Steady state stays stable.
+//   2. Otherwise pick newest candidate by mtime, log a warning, return its name
+//      so caller writes a fresh alias.
+//   3. If every candidate has vanished from disk (impossible in practice), return
+//      null and leave the alias untouched.
+//
+// See docs/multi-user-architecture/UPGRADE-v2026.5.7.md Part IX for root cause.
+const STABLE_ALIAS_BODY_PATTERN = /^export \* from "\.\/(?<candidate>[^"]+)";\s*$/mu;
+
+export function preserveOrPickFallbackAlias({ aliasPath, candidates, distDir, fsImpl = fs, log }) {
+  try {
+    const existing = fsImpl.readFileSync(aliasPath, "utf8");
+    const match = existing.match(STABLE_ALIAS_BODY_PATTERN);
+    if (match?.groups?.candidate && candidates.includes(match.groups.candidate)) {
+      return null;
+    }
+  } catch {
+    // alias missing, fall through to fallback
+  }
+  let newest = null;
+  let newestMtime = -Infinity;
+  for (const candidate of candidates) {
+    try {
+      const stat = fsImpl.statSync(path.join(distDir, candidate));
+      if (stat.mtimeMs > newestMtime) {
+        newest = candidate;
+        newestMtime = stat.mtimeMs;
+      }
+    } catch {
+      // candidate vanished between readdir and stat, skip
+    }
+  }
+  if (newest) {
+    const message =
+      `[runtime-postbuild] ambiguous alias ${path.basename(aliasPath)} ` +
+      `(${candidates.length} candidates); using newest=${newest}. ` +
+      `See docs/multi-user-architecture/UPGRADE-v2026.5.7.md Part IX.\n`;
+    if (log) {
+      log(message);
+    } else {
+      process.stderr.write(message);
+    }
+  }
+  return newest;
 }
 
 export function rewriteRootRuntimeImportsToStableAliases(params = {}) {

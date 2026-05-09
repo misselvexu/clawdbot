@@ -5,6 +5,7 @@ import { discoverStaticExtensionAssets } from "../../scripts/lib/static-extensio
 import {
   copyStaticExtensionAssets,
   listStaticExtensionAssetOutputs,
+  preserveOrPickFallbackAlias,
   rewriteRootRuntimeImportsToStableAliases,
   writeLegacyCliExitCompatChunks,
   writeLegacyRootRuntimeCompatAliases,
@@ -474,6 +475,153 @@ describe("runtime postbuild static assets", () => {
     expect(await fs.readFile(path.join(distDir, "server-close-DvAvfgr8.js"), "utf8")).toBe(
       'export * from "./server-close.runtime.js";\n',
     );
+  });
+
+  // Fix D coverage (private fork patch, pending upstream PR): when alias resolution
+  // is ambiguous for a dispatch / channel-runtime alias (multiple candidates with no
+  // wrapper relationship), prefer "preserve existing valid alias OR pick newest by
+  // mtime" over deletion. See docs/multi-user-architecture/UPGRADE-v2026.5.7.md Part IX.
+  describe("preserveOrPickFallbackAlias (Fix D)", () => {
+    it("picks newest candidate by mtime when alias is missing", async () => {
+      const rootDir = createTempDir("openclaw-runtime-postbuild-fixd-");
+      const distDir = path.join(rootDir, "dist");
+      await fs.mkdir(distDir, { recursive: true });
+      const oldPath = path.join(distDir, "channel.runtime-Old111.js");
+      const newPath = path.join(distDir, "channel.runtime-New222.js");
+      await fs.writeFile(oldPath, "export const channel = 1;\n", "utf8");
+      await fs.writeFile(newPath, "export const channel = 2;\n", "utf8");
+      const past = new Date(Date.now() - 1000 * 60);
+      await fs.utimes(oldPath, past, past);
+
+      const log = vi.fn();
+      const result = preserveOrPickFallbackAlias({
+        aliasPath: path.join(distDir, "channel.runtime.js"),
+        candidates: ["channel.runtime-Old111.js", "channel.runtime-New222.js"],
+        distDir,
+        log,
+      });
+
+      expect(result).toBe("channel.runtime-New222.js");
+      expect(log).toHaveBeenCalledOnce();
+      expect(log.mock.calls[0]?.[0]).toContain("ambiguous alias channel.runtime.js");
+      expect(log.mock.calls[0]?.[0]).toContain("using newest=channel.runtime-New222.js");
+    });
+
+    it("preserves existing alias when it points to a current candidate", async () => {
+      const rootDir = createTempDir("openclaw-runtime-postbuild-fixd-");
+      const distDir = path.join(rootDir, "dist");
+      await fs.mkdir(distDir, { recursive: true });
+      await fs.writeFile(
+        path.join(distDir, "channel.runtime-Aaa111.js"),
+        "export const channel = 1;\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(distDir, "channel.runtime-Bbb222.js"),
+        "export const channel = 2;\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(distDir, "channel.runtime.js"),
+        'export * from "./channel.runtime-Aaa111.js";\n',
+        "utf8",
+      );
+
+      const log = vi.fn();
+      const result = preserveOrPickFallbackAlias({
+        aliasPath: path.join(distDir, "channel.runtime.js"),
+        candidates: ["channel.runtime-Aaa111.js", "channel.runtime-Bbb222.js"],
+        distDir,
+        log,
+      });
+
+      expect(result).toBeNull();
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it("re-picks newest candidate when existing alias points to a vanished candidate", async () => {
+      const rootDir = createTempDir("openclaw-runtime-postbuild-fixd-");
+      const distDir = path.join(rootDir, "dist");
+      await fs.mkdir(distDir, { recursive: true });
+      const oldPath = path.join(distDir, "channel.runtime-Aaa111.js");
+      const newPath = path.join(distDir, "channel.runtime-Bbb222.js");
+      await fs.writeFile(oldPath, "export const channel = 1;\n", "utf8");
+      await fs.writeFile(newPath, "export const channel = 2;\n", "utf8");
+      await fs.writeFile(
+        path.join(distDir, "channel.runtime.js"),
+        'export * from "./channel.runtime-Stale999.js";\n',
+        "utf8",
+      );
+      const past = new Date(Date.now() - 1000 * 60);
+      await fs.utimes(oldPath, past, past);
+
+      const result = preserveOrPickFallbackAlias({
+        aliasPath: path.join(distDir, "channel.runtime.js"),
+        candidates: ["channel.runtime-Aaa111.js", "channel.runtime-Bbb222.js"],
+        distDir,
+      });
+
+      expect(result).toBe("channel.runtime-Bbb222.js");
+    });
+
+    it("returns null when every candidate has vanished from disk", async () => {
+      const rootDir = createTempDir("openclaw-runtime-postbuild-fixd-");
+      const distDir = path.join(rootDir, "dist");
+      await fs.mkdir(distDir, { recursive: true });
+
+      const log = vi.fn();
+      const result = preserveOrPickFallbackAlias({
+        aliasPath: path.join(distDir, "channel.runtime.js"),
+        candidates: ["channel.runtime-Gone111.js", "channel.runtime-Gone222.js"],
+        distDir,
+        log,
+      });
+
+      expect(result).toBeNull();
+      expect(log).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("writeStableRootRuntimeAliases preserves dispatch aliases when ambiguous (Fix D end-to-end)", () => {
+    it("creates dispatch alias for newest candidate when stable alias is missing", async () => {
+      const rootDir = createTempDir("openclaw-runtime-postbuild-fixd-");
+      const distDir = path.join(rootDir, "dist");
+      await fs.mkdir(distDir, { recursive: true });
+      const olderPath = path.join(distDir, "send.runtime-Aaa111.js");
+      const newerPath = path.join(distDir, "send.runtime-Bbb222.js");
+      await fs.writeFile(olderPath, "export const send = 1;\n", "utf8");
+      await fs.writeFile(newerPath, "export const send = 2;\n", "utf8");
+      const past = new Date(Date.now() - 1000 * 60);
+      await fs.utimes(olderPath, past, past);
+
+      writeStableRootRuntimeAliases({ rootDir });
+
+      expect(await fs.readFile(path.join(distDir, "send.runtime.js"), "utf8")).toBe(
+        'export * from "./send.runtime-Bbb222.js";\n',
+      );
+    });
+
+    it("keeps install.runtime strictly marker-resolved (no mtime fallback for daemon vs plugin install)", async () => {
+      // Regression guard: install.runtime must NOT fall back to mtime because plugin
+      // install runtime and daemon install runtime export different APIs.
+      const rootDir = createTempDir("openclaw-runtime-postbuild-fixd-");
+      const distDir = path.join(rootDir, "dist");
+      await fs.mkdir(distDir, { recursive: true });
+      await fs.writeFile(
+        path.join(distDir, "install.runtime-Aaa111.js"),
+        "export const pluginInstall = true;\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(distDir, "install.runtime-Bbb222.js"),
+        "export const daemonInstall = true;\n",
+        "utf8",
+      );
+
+      writeStableRootRuntimeAliases({ rootDir });
+
+      await expect(fs.stat(path.join(distDir, "install.runtime.js"))).rejects.toThrow();
+    });
   });
 
   it("writes legacy CLI exit compatibility chunks", async () => {
