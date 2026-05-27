@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ChannelConfigRuntimeSchema } from "../channels/plugins/types.config.js";
 import { MANIFEST_KEY } from "../compat/legacy-names.js";
-import { matchBoundaryFileOpenFailure, openBoundaryFileSync } from "../infra/boundary-file-read.js";
+import { matchRootFileOpenFailure, openRootFileSync } from "../infra/boundary-file-read.js";
 import { isBlockedObjectKey } from "../infra/prototype-keys.js";
 import {
   normalizeModelCatalog,
@@ -304,6 +304,8 @@ export type PluginManifest = {
    * Optional lightweight module that exports provider plugin metadata for
    * auth/catalog discovery. It should not import the full plugin runtime.
    */
+  providerCatalogEntry?: string;
+  /** @deprecated Use providerCatalogEntry. */
   providerDiscoveryEntry?: string;
   /**
    * Cheap model-family ownership metadata used before plugin runtime loads.
@@ -400,6 +402,7 @@ export type PluginManifestContracts = {
    * plugin instead of every provider plugin.
    */
   externalAuthProviders?: string[];
+  embeddingProviders?: string[];
   memoryEmbeddingProviders?: string[];
   speechProviders?: string[];
   realtimeTranscriptionProviders?: string[];
@@ -413,6 +416,7 @@ export type PluginManifestContracts = {
   webFetchProviders?: string[];
   webSearchProviders?: string[];
   migrationProviders?: string[];
+  gatewayMethodDispatch?: string[];
   tools?: string[];
 };
 
@@ -456,6 +460,7 @@ export type PluginManifestCapabilityProviderMetadata = {
   authProviders?: string[];
   authSignals?: PluginManifestCapabilityProviderAuthSignal[];
   configSignals?: PluginManifestCapabilityProviderConfigSignal[];
+  referenceAudioInputs?: boolean;
 };
 
 export type PluginManifestToolMetadata = PluginManifestCapabilityProviderMetadata & {
@@ -482,6 +487,11 @@ export type PluginManifestProviderAuthChoice = {
   groupId?: string;
   groupLabel?: string;
   groupHint?: string;
+  /**
+   * Surface this group in the featured tier of the interactive onboarding
+   * picker. Featured groups appear before the "More…" entry.
+   */
+  onboardingFeatured?: boolean;
   /** Optional CLI flag metadata for one-flag auth flows such as API keys. */
   optionKey?: string;
   cliFlag?: string;
@@ -494,7 +504,10 @@ export type PluginManifestProviderAuthChoice = {
   onboardingScopes?: PluginManifestOnboardingScope[];
 };
 
-export type PluginManifestOnboardingScope = "text-inference" | "image-generation";
+export type PluginManifestOnboardingScope =
+  | "text-inference"
+  | "image-generation"
+  | "music-generation";
 
 export type PluginManifestLoadResult =
   | { ok: true; manifest: PluginManifest; manifestPath: string }
@@ -724,11 +737,13 @@ function normalizeCapabilityProviderMetadataEntry(
   const authProviders = normalizeTrimmedStringList(rawMetadata.authProviders);
   const authSignals = normalizeCapabilityProviderAuthSignals(rawMetadata.authSignals);
   const configSignals = normalizeCapabilityProviderConfigSignals(rawMetadata.configSignals);
+  const referenceAudioInputs = rawMetadata.referenceAudioInputs === true ? true : undefined;
   const metadata = {
     ...(aliases.length > 0 ? { aliases } : {}),
     ...(authProviders.length > 0 ? { authProviders } : {}),
     ...(authSignals ? { authSignals } : {}),
     ...(configSignals ? { configSignals } : {}),
+    ...(referenceAudioInputs ? { referenceAudioInputs } : {}),
   } satisfies PluginManifestCapabilityProviderMetadata;
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
@@ -785,6 +800,7 @@ function normalizeManifestContracts(value: unknown): PluginManifestContracts | u
   const embeddedExtensionFactories = normalizeTrimmedStringList(value.embeddedExtensionFactories);
   const agentToolResultMiddleware = normalizeTrimmedStringList(value.agentToolResultMiddleware);
   const externalAuthProviders = normalizeTrimmedStringList(value.externalAuthProviders);
+  const embeddingProviders = normalizeTrimmedStringList(value.embeddingProviders);
   const memoryEmbeddingProviders = normalizeTrimmedStringList(value.memoryEmbeddingProviders);
   const speechProviders = normalizeTrimmedStringList(value.speechProviders);
   const realtimeTranscriptionProviders = normalizeTrimmedStringList(
@@ -800,11 +816,13 @@ function normalizeManifestContracts(value: unknown): PluginManifestContracts | u
   const webFetchProviders = normalizeTrimmedStringList(value.webFetchProviders);
   const webSearchProviders = normalizeTrimmedStringList(value.webSearchProviders);
   const migrationProviders = normalizeTrimmedStringList(value.migrationProviders);
+  const gatewayMethodDispatch = normalizeTrimmedStringList(value.gatewayMethodDispatch);
   const tools = normalizeTrimmedStringList(value.tools);
   const contracts = {
     ...(embeddedExtensionFactories.length > 0 ? { embeddedExtensionFactories } : {}),
     ...(agentToolResultMiddleware.length > 0 ? { agentToolResultMiddleware } : {}),
     ...(externalAuthProviders.length > 0 ? { externalAuthProviders } : {}),
+    ...(embeddingProviders.length > 0 ? { embeddingProviders } : {}),
     ...(memoryEmbeddingProviders.length > 0 ? { memoryEmbeddingProviders } : {}),
     ...(speechProviders.length > 0 ? { speechProviders } : {}),
     ...(realtimeTranscriptionProviders.length > 0 ? { realtimeTranscriptionProviders } : {}),
@@ -818,6 +836,7 @@ function normalizeManifestContracts(value: unknown): PluginManifestContracts | u
     ...(webFetchProviders.length > 0 ? { webFetchProviders } : {}),
     ...(webSearchProviders.length > 0 ? { webSearchProviders } : {}),
     ...(migrationProviders.length > 0 ? { migrationProviders } : {}),
+    ...(gatewayMethodDispatch.length > 0 ? { gatewayMethodDispatch } : {}),
     ...(tools.length > 0 ? { tools } : {}),
   } satisfies PluginManifestContracts;
 
@@ -1158,7 +1177,7 @@ function normalizeManifestProviderRequest(
   return Object.keys(providers).length > 0 ? { providers } : undefined;
 }
 
-function normalizeManifestActivation(value: unknown): PluginManifestActivation | undefined {
+export function normalizeManifestActivation(value: unknown): PluginManifestActivation | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -1348,13 +1367,14 @@ function normalizeProviderAuthChoices(
     const groupId = normalizeOptionalString(entry.groupId) ?? "";
     const groupLabel = normalizeOptionalString(entry.groupLabel) ?? "";
     const groupHint = normalizeOptionalString(entry.groupHint) ?? "";
+    const onboardingFeatured = entry.onboardingFeatured === true;
     const optionKey = normalizeOptionalString(entry.optionKey) ?? "";
     const cliFlag = normalizeOptionalString(entry.cliFlag) ?? "";
     const cliOption = normalizeOptionalString(entry.cliOption) ?? "";
     const cliDescription = normalizeOptionalString(entry.cliDescription) ?? "";
     const onboardingScopes = normalizeTrimmedStringList(entry.onboardingScopes).filter(
       (scope): scope is PluginManifestOnboardingScope =>
-        scope === "text-inference" || scope === "image-generation",
+        scope === "text-inference" || scope === "image-generation" || scope === "music-generation",
     );
     normalized.push({
       provider,
@@ -1368,6 +1388,7 @@ function normalizeProviderAuthChoices(
       ...(groupId ? { groupId } : {}),
       ...(groupLabel ? { groupLabel } : {}),
       ...(groupHint ? { groupHint } : {}),
+      ...(onboardingFeatured ? { onboardingFeatured: true } : {}),
       ...(optionKey ? { optionKey } : {}),
       ...(cliFlag ? { cliFlag } : {}),
       ...(cliOption ? { cliOption } : {}),
@@ -1513,7 +1534,7 @@ export function loadPluginManifest(
   rootRealPath?: string,
 ): PluginManifestLoadResult {
   const manifestPath = resolvePluginManifestPath(rootDir);
-  const opened = openBoundaryFileSync({
+  const opened = openRootFileSync({
     absolutePath: manifestPath,
     rootPath: rootDir,
     ...(rootRealPath !== undefined ? { rootRealPath } : {}),
@@ -1522,7 +1543,7 @@ export function loadPluginManifest(
     rejectHardlinks,
   });
   if (!opened.ok) {
-    return matchBoundaryFileOpenFailure(opened, {
+    return matchRootFileOpenFailure(opened, {
       path: () => ({
         ok: false,
         error: `plugin manifest not found: ${manifestPath}`,
@@ -1589,6 +1610,7 @@ export function loadPluginManifest(
   const version = normalizeOptionalString(raw.version);
   const channels = normalizeTrimmedStringList(raw.channels);
   const providers = normalizeTrimmedStringList(raw.providers);
+  const providerCatalogEntry = normalizeOptionalString(raw.providerCatalogEntry);
   const providerDiscoveryEntry = normalizeOptionalString(raw.providerDiscoveryEntry);
   const modelSupport = normalizeManifestModelSupport(raw.modelSupport);
   const modelCatalog = normalizeModelCatalog(raw.modelCatalog, {
@@ -1652,6 +1674,7 @@ export function loadPluginManifest(
       kind,
       channels,
       providers,
+      providerCatalogEntry,
       providerDiscoveryEntry,
       modelSupport,
       modelCatalog,
@@ -1794,7 +1817,8 @@ export const DEFAULT_PLUGIN_ENTRY_CANDIDATES = [
 export type PackageExtensionResolution =
   | { status: "ok"; entries: string[] }
   | { status: "missing"; entries: [] }
-  | { status: "empty"; entries: [] };
+  | { status: "empty"; entries: [] }
+  | { status: "invalid"; entries: []; error: string };
 
 export type ManifestKey = typeof MANIFEST_KEY;
 
@@ -1818,11 +1842,40 @@ export function getPackageManifestMetadata(
 export function resolvePackageExtensionEntries(
   manifest: PackageManifest | undefined,
 ): PackageExtensionResolution {
-  const raw = getPackageManifestMetadata(manifest)?.extensions;
-  if (!Array.isArray(raw)) {
+  const rawOpenClaw = manifest?.[MANIFEST_KEY] as unknown;
+  if (rawOpenClaw === undefined || rawOpenClaw === null) {
     return { status: "missing", entries: [] };
   }
-  const entries = raw.map((entry) => normalizeOptionalString(entry) ?? "").filter(Boolean);
+  if (!isRecord(rawOpenClaw)) {
+    return {
+      status: "invalid",
+      entries: [],
+      error: "package.json openclaw must be an object",
+    };
+  }
+  const raw = rawOpenClaw.extensions;
+  if (raw === undefined || raw === null) {
+    return { status: "missing", entries: [] };
+  }
+  if (!Array.isArray(raw)) {
+    return {
+      status: "invalid",
+      entries: [],
+      error: "package.json openclaw.extensions must be an array",
+    };
+  }
+  const entries: string[] = [];
+  for (const [index, entry] of raw.entries()) {
+    const normalized = normalizeOptionalString(entry);
+    if (!normalized) {
+      return {
+        status: "invalid",
+        entries: [],
+        error: `package.json openclaw.extensions[${index}] must be a non-empty string`,
+      };
+    }
+    entries.push(normalized);
+  }
   if (entries.length === 0) {
     return { status: "empty", entries: [] };
   }

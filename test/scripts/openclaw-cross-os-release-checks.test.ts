@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { LOCAL_BUILD_METADATA_DIST_PATHS } from "../../scripts/lib/local-build-metadata-paths.mjs";
 import {
   agentOutputHasExpectedOkMarker,
+  agentTurnUsedEmbeddedFallback,
   buildCrossOsReleaseSmokePluginAllowlist,
   buildPackagedUpgradeUpdateArgs,
   buildReleaseOnboardArgs,
@@ -89,19 +90,34 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
   });
 
   it("gives the Windows packaged updater wrapper enough headroom for OpenClaw timeout output", () => {
-    expect(CROSS_OS_WINDOWS_PACKAGED_UPGRADE_STEP_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(20 * 60);
+    expect(CROSS_OS_WINDOWS_PACKAGED_UPGRADE_STEP_TIMEOUT_SECONDS).toBeLessThanOrEqual(10 * 60);
     expect(CROSS_OS_WINDOWS_PACKAGED_UPGRADE_WRAPPER_TIMEOUT_MS).toBeGreaterThan(
       CROSS_OS_WINDOWS_PACKAGED_UPGRADE_STEP_TIMEOUT_SECONDS * 1000,
     );
     expect(
       CROSS_OS_WINDOWS_PACKAGED_UPGRADE_WRAPPER_TIMEOUT_MS -
         CROSS_OS_WINDOWS_PACKAGED_UPGRADE_STEP_TIMEOUT_SECONDS * 1000,
-    ).toBeGreaterThanOrEqual(5 * 60 * 1000);
+    ).toBeGreaterThanOrEqual(2 * 60 * 1000);
+    expect(CROSS_OS_WINDOWS_PACKAGED_UPGRADE_WRAPPER_TIMEOUT_MS).toBeLessThanOrEqual(
+      12 * 60 * 1000,
+    );
   });
 
   it("prints command heartbeats before long release commands hit job timeouts", () => {
     expect(CROSS_OS_COMMAND_HEARTBEAT_SECONDS).toBeGreaterThan(0);
     expect(CROSS_OS_COMMAND_HEARTBEAT_SECONDS).toBeLessThanOrEqual(60);
+  });
+
+  it("records packaged-fresh phase timings for release-check summaries", () => {
+    const source = readFileSync("scripts/openclaw-cross-os-release-checks.ts", "utf8");
+    const freshLaneSource = source.slice(
+      source.indexOf("async function runFreshLane"),
+      source.indexOf("async function runUpgradeLane"),
+    );
+
+    expect(freshLaneSource).toContain('runTimedLanePhase(lane, "install-candidate"');
+    expect(freshLaneSource).toContain('runTimedLanePhase(lane, "agent-turn"');
+    expect(freshLaneSource).toContain("phaseTimings: lane.phaseTimings");
   });
 
   it("accepts OK agent output from the captured log when stdout is empty", () => {
@@ -148,6 +164,40 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
         new Error("Command timed out and could not be terminated cleanly"),
       ),
     ).toBe(true);
+    expect(
+      shouldRetryCrossOsAgentTurnError(
+        new Error("Agent turn used embedded fallback instead of gateway."),
+      ),
+    ).toBe(true);
+  });
+
+  it("detects embedded fallback agent turns as non-gateway proof", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclaw-cross-os-agent-fallback-"));
+    const logPath = join(dir, "agent.log");
+    expect(
+      agentTurnUsedEmbeddedFallback({
+        stdout: JSON.stringify({ payloads: [{ text: "OK" }] }),
+        stderr: "EMBEDDED FALLBACK: Gateway agent failed; running embedded agent: gateway closed",
+      }),
+    ).toBe(true);
+    expect(
+      agentTurnUsedEmbeddedFallback({
+        stdout: JSON.stringify({ payloads: [{ text: "OK" }] }),
+        stderr: "",
+      }),
+    ).toBe(false);
+    expect(
+      agentTurnUsedEmbeddedFallback(
+        { stdout: "", stderr: "" },
+        { logText: 'EMBEDDED FALLBACK: Gateway agent failed\n{"payloads":[{"text":"OK"}]}' },
+      ),
+    ).toBe(true);
+    try {
+      writeFileSync(logPath, "EMBEDDED FALLBACK: Gateway agent failed\n");
+      expect(agentTurnUsedEmbeddedFallback({ stdout: "", stderr: "" }, { logPath })).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("skips optional live agent turns only for model availability failures", () => {
@@ -202,10 +252,10 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
         OPENCLAW_CROSS_OS_MODEL: "openai/gpt-5.4-nano",
       })?.model,
     ).toBe("openai/gpt-5.4-nano");
-    expect(resolveProviderConfig("openai", {})?.model).toBe("openai/gpt-5.4");
+    expect(resolveProviderConfig("openai", {})?.model).toBe("openai/gpt-5.5");
   });
 
-  it("keeps release cross-OS OpenAI smoke on GPT-5.4", () => {
+  it("keeps release cross-OS OpenAI smoke on GPT-5.5", () => {
     const workflow = readFileSync(
       ".github/workflows/openclaw-cross-os-release-checks-reusable.yml",
       "utf8",
@@ -213,19 +263,23 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     const releaseChecks = readFileSync(".github/workflows/openclaw-release-checks.yml", "utf8");
 
     expect(workflow).toContain(
-      "OPENCLAW_CROSS_OS_OPENAI_MODEL: ${{ inputs.openai_model || vars.OPENCLAW_CROSS_OS_OPENAI_MODEL || 'openai/gpt-5.4' }}",
+      "OPENCLAW_CROSS_OS_OPENAI_MODEL: ${{ inputs.openai_model || vars.OPENCLAW_CROSS_OS_OPENAI_MODEL || 'openai/gpt-5.5' }}",
     );
-    expect(releaseChecks).toContain("openai_model: openai/gpt-5.4");
+    expect(releaseChecks).toContain("openai_model: openai/gpt-5.5");
   });
 
   it("keeps release smoke plugin allowlists focused on agent-turn essentials", () => {
     const allowlist = buildCrossOsReleaseSmokePluginAllowlist({ extensionId: "openai" });
 
-    expect(allowlist).toEqual(expect.arrayContaining(["openai", "acpx"]));
-    expect(allowlist).not.toContain("memory-core");
-    expect(allowlist).not.toContain("document-extract");
-    expect(allowlist).not.toContain("microsoft");
-    expect(allowlist).not.toContain("web-readability");
+    expect(allowlist).toEqual([
+      "openai",
+      "acpx",
+      "bonjour",
+      "browser",
+      "device-pair",
+      "phone-control",
+      "talk-voice",
+    ]);
   });
 
   it("can stage packaged-upgrade baselines without npm lifecycle scripts", () => {
@@ -259,18 +313,18 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     const providerOverride = "models.providers.${params.providerConfig.extensionId}";
 
     expect(CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE).toBe("minimal");
-    expect(source).toContain('"--thinking",\n    "minimal"');
+    expect(source).toContain('"--thinking",\n    "off"');
     expect(source.match(/"tools\.profile", CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE/g)).toHaveLength(2);
     expect(CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(600);
     expect(source).toContain("buildReleaseProviderConfigOverride");
     expect(source).toContain("models: []");
+    expect(source).toContain('agentRuntime: { id: "pi" }');
     expect(source).toContain('"--merge"');
     expect(source).toContain(providerOverride);
     expect(source).not.toContain("models.providers.${params.providerConfig.extensionId}.baseUrl");
     expect(source).toContain('"--timeout",\n    String(CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS)');
-    expect(source.match(/buildReleaseAgentTurnArgs\(sessionId\)/g)?.length).toBeGreaterThanOrEqual(
-      2,
-    );
+    const agentTurnArgCalls = source.match(/buildReleaseAgentTurnArgs\(sessionId\)/g) ?? [];
+    expect(agentTurnArgCalls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("treats explicit empty-string args as values instead of boolean flags", () => {
@@ -355,28 +409,47 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     });
 
     expect(matrix.include).toHaveLength(12);
-    expect(matrix.include).toContainEqual(
-      expect.objectContaining({
-        os_id: "windows",
-        runner: "blacksmith-32vcpu-windows-2025",
-        suite: "dev-update",
-        lane: "upgrade",
-      }),
-    );
-    expect(matrix.include).toContainEqual(
-      expect.objectContaining({
-        os_id: "ubuntu",
-        suite: "installer-fresh",
-        lane: "fresh",
-      }),
-    );
-    expect(matrix.include).toContainEqual(
-      expect.objectContaining({
-        os_id: "macos",
-        runner: "blacksmith-6vcpu-macos-latest",
-        suite: "packaged-fresh",
-      }),
-    );
+    expect(
+      matrix.include.find((entry) => entry.os_id === "windows" && entry.suite === "dev-update"),
+    ).toEqual({
+      artifact_name: "windows",
+      display_name: "Windows",
+      lane: "upgrade",
+      os_id: "windows",
+      runner: "blacksmith-32vcpu-windows-2025",
+      suite: "dev-update",
+      suite_label: "dev update",
+    });
+    expect(
+      matrix.include.find((entry) => entry.os_id === "ubuntu" && entry.suite === "installer-fresh"),
+    ).toEqual({
+      artifact_name: "linux",
+      display_name: "Linux",
+      lane: "fresh",
+      os_id: "ubuntu",
+      runner: "blacksmith-8vcpu-ubuntu-2404",
+      suite: "installer-fresh",
+      suite_label: "installer fresh",
+    });
+    expect(
+      matrix.include.find((entry) => entry.os_id === "macos" && entry.suite === "packaged-fresh"),
+    ).toEqual({
+      artifact_name: "macos",
+      display_name: "macOS",
+      lane: "fresh",
+      os_id: "macos",
+      runner: "blacksmith-6vcpu-macos-latest",
+      suite: "packaged-fresh",
+      suite_label: "packaged fresh",
+    });
+  });
+
+  it("keeps matrix resolution independent of package dependency imports", () => {
+    const source = readFileSync("scripts/openclaw-cross-os-release-checks.ts", "utf8");
+    const topLevelImports = source.slice(0, source.indexOf("const SCRIPT_PATH"));
+
+    expect(topLevelImports).not.toContain("package-dist-inventory");
+    expect(source).toContain("function assertNoLegacyPluginDependencyStagingDebris(packageRoot)");
   });
 
   it("keeps matrix resolution independent of package dependency imports", () => {
@@ -401,11 +474,15 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     });
 
     expect(matrix.include).toEqual([
-      expect.objectContaining({
-        os_id: "windows",
-        suite: "packaged-upgrade",
+      {
+        artifact_name: "windows",
+        display_name: "Windows",
         lane: "upgrade",
-      }),
+        os_id: "windows",
+        runner: "blacksmith-32vcpu-windows-2025",
+        suite: "packaged-upgrade",
+        suite_label: "packaged upgrade",
+      },
     ]);
   });
 
@@ -428,7 +505,11 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
       "ubuntu",
       "windows",
     ]);
-    expect(matrix.include.every((entry) => entry.suite === "packaged-fresh")).toBe(true);
+    expect(matrix.include.map((entry) => entry.suite)).toEqual([
+      "packaged-fresh",
+      "packaged-fresh",
+      "packaged-fresh",
+    ]);
   });
 
   it("rejects unsupported cross-OS suite filter tokens", () => {
@@ -727,6 +808,7 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
       }),
     ).toEqual({
       FOO: "bar",
+      OPENCLAW_ALLOW_OLDER_BINARY_DESTRUCTIVE_ACTIONS: "1",
       NODE_DISABLE_COMPILE_CACHE: "1",
     });
   });
@@ -985,7 +1067,7 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
   });
 
   it("accepts a git main dev-channel update status payload", () => {
-    expect(() =>
+    expect(
       verifyDevUpdateStatus(
         JSON.stringify({
           update: {
@@ -999,11 +1081,11 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
           },
         }),
       ),
-    ).not.toThrow();
+    ).toBeUndefined();
   });
 
   it("accepts a git dev-channel payload for a requested non-main branch", () => {
-    expect(() =>
+    expect(
       verifyDevUpdateStatus(
         JSON.stringify({
           update: {
@@ -1019,11 +1101,11 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
         }),
         { ref: "codex/cross-os-release-checks-full-native-e2e" },
       ),
-    ).not.toThrow();
+    ).toBeUndefined();
   });
 
   it("accepts a git dev-channel payload pinned to a prepared source sha", () => {
-    expect(() =>
+    expect(
       verifyDevUpdateStatus(
         JSON.stringify({
           update: {
@@ -1039,11 +1121,11 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
         }),
         { ref: "08753a1d793c040b101c8a26c43445dbbab14995" },
       ),
-    ).not.toThrow();
+    ).toBeUndefined();
   });
 
   it("accepts uppercase requested commit shas when update status reports lowercase", () => {
-    expect(() =>
+    expect(
       verifyDevUpdateStatus(
         JSON.stringify({
           update: {
@@ -1058,7 +1140,7 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
         }),
         { ref: "08753A1D793C040B101C8A26C43445DBBAB14995" },
       ),
-    ).not.toThrow();
+    ).toBeUndefined();
   });
 
   it("rejects update status payloads that are not on dev/main git", () => {

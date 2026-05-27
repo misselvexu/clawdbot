@@ -15,26 +15,8 @@ const configMocks = vi.hoisted(() => ({
 }));
 const pluginManifestRegistry = vi.hoisted(() => ({ plugins: [], diagnostics: [] }));
 const pluginMetadataSnapshot = vi.hoisted(
-  (): PluginMetadataSnapshot => ({
-    policyHash: "policy",
-    index: {
-      version: 1,
-      hostContractVersion: "test",
-      compatRegistryVersion: "test",
-      migrationVersion: 1,
-      policyHash: "policy",
-      generatedAtMs: 0,
-      installRecords: {},
-      plugins: [],
-      diagnostics: [],
-    },
-    registryDiagnostics: [],
-    manifestRegistry: pluginManifestRegistry,
-    plugins: [],
-    diagnostics: [],
-    byPluginId: new Map(),
-    normalizePluginId: (pluginId) => pluginId,
-    owners: {
+  (): PluginMetadataSnapshot => {
+    const emptyOwners = {
       channels: new Map(),
       channelConfigs: new Map(),
       providers: new Map(),
@@ -43,16 +25,38 @@ const pluginMetadataSnapshot = vi.hoisted(
       setupProviders: new Map(),
       commandAliases: new Map(),
       contracts: new Map(),
-    },
-    metrics: {
+    };
+    const zeroMetrics = {
       registrySnapshotMs: 0,
       manifestRegistryMs: 0,
       ownerMapsMs: 0,
       totalMs: 0,
       indexPluginCount: 0,
       manifestPluginCount: 0,
-    },
-  }),
+    };
+    return {
+      policyHash: "policy",
+      index: {
+        version: 1,
+        hostContractVersion: "test",
+        compatRegistryVersion: "test",
+        migrationVersion: 1,
+        policyHash: "policy",
+        generatedAtMs: 0,
+        installRecords: {},
+        plugins: [],
+        diagnostics: [],
+      },
+      registryDiagnostics: [],
+      manifestRegistry: pluginManifestRegistry,
+      plugins: [],
+      diagnostics: [],
+      byPluginId: new Map(),
+      normalizePluginId: (pluginId) => pluginId,
+      owners: emptyOwners,
+      metrics: zeroMetrics,
+    };
+  },
 );
 vi.mock("../config/io.js", () => ({
   readConfigFileSnapshot: vi.fn(),
@@ -155,7 +159,10 @@ function installConfigIoMockDefaults() {
     }
     return snapshot.valid ? { snapshot, pluginMetadataSnapshot } : { snapshot };
   });
-  writeConfig.mockResolvedValue(undefined);
+  writeConfig.mockResolvedValue({
+    persistedHash: "test-persisted-hash",
+    persistedConfig: validConfig,
+  });
 }
 
 describe("gateway startup config validation", () => {
@@ -277,48 +284,6 @@ describe("gateway startup config validation", () => {
     });
   });
 
-  it("logs config warnings without failing startup", async () => {
-    const snapshot = buildTestConfigSnapshot({
-      path: configPath,
-      exists: true,
-      raw: `${JSON.stringify(validConfig)}\n`,
-      parsed: validConfig,
-      valid: true,
-      config: validConfig,
-      issues: [],
-      warnings: [
-        {
-          path: "tools.web.search.provider",
-          message:
-            'web_search provider is not available: brave (install or enable plugin "brave", then run openclaw doctor --fix)',
-        },
-      ],
-      legacyIssues: [],
-    });
-    const log = { info: vi.fn(), warn: vi.fn() };
-
-    await expect(
-      loadGatewayStartupConfigSnapshot({
-        minimalTestGateway: false,
-        log,
-        initialSnapshotRead: {
-          snapshot,
-          pluginMetadataSnapshot,
-        },
-      }),
-    ).resolves.toEqual({
-      snapshot,
-      wroteConfig: false,
-      pluginMetadataSnapshot,
-    });
-
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'tools.web.search.provider: web_search provider is not available: brave (install or enable plugin "brave", then run openclaw doctor --fix)',
-      ),
-    );
-  });
-
   it("preserves empty model allowlist entries through runtime-only startup auto-enable", async () => {
     const sourceConfig = {
       agents: {
@@ -365,31 +330,10 @@ describe("gateway startup config validation", () => {
       runtimeConfig: sourceConfig,
       config: sourceConfig,
     } satisfies ConfigFileSnapshot;
-    const postWriteSnapshot = {
-      ...buildTestConfigSnapshot({
-        path: configPath,
-        exists: true,
-        raw: `${JSON.stringify(autoEnabledConfig)}\n`,
-        parsed: autoEnabledConfig,
-        valid: true,
-        config: autoEnabledConfig,
-        issues: [],
-        legacyIssues: [],
-      }),
-      sourceConfig: autoEnabledConfig,
-      resolved: autoEnabledConfig,
-      runtimeConfig: autoEnabledConfig,
-      config: autoEnabledConfig,
-    } satisfies ConfigFileSnapshot;
-    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata)
-      .mockResolvedValueOnce({
-        snapshot: initialSnapshot,
-        pluginMetadataSnapshot,
-      })
-      .mockResolvedValueOnce({
-        snapshot: postWriteSnapshot,
-        pluginMetadataSnapshot,
-      });
+    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata).mockResolvedValueOnce({
+      snapshot: initialSnapshot,
+      pluginMetadataSnapshot,
+    });
     applyPluginAutoEnable.mockReturnValueOnce({
       config: autoEnabledConfig,
       changes: ["Telegram configured, enabled automatically."],
@@ -403,8 +347,12 @@ describe("gateway startup config validation", () => {
         log,
       }),
     ).resolves.toEqual({
-      snapshot: postWriteSnapshot,
-      wroteConfig: true,
+      snapshot: {
+        ...initialSnapshot,
+        runtimeConfig: autoEnabledConfig,
+        config: autoEnabledConfig,
+      },
+      wroteConfig: false,
       pluginMetadataSnapshot,
     });
 
@@ -413,27 +361,90 @@ describe("gateway startup config validation", () => {
       env: process.env,
       manifestRegistry: pluginManifestRegistry,
     });
-    expect(configMutate.replaceConfigFile).toHaveBeenCalledWith({
-      nextConfig: expect.objectContaining({
-        agents: expect.objectContaining({
-          defaults: expect.objectContaining({
-            models: {
-              "dos-ai/dos-ai": {},
-              "dos-ai/dos-auto": {},
-            },
-          }),
-        }),
+    expect(configMutate.replaceConfigFile).not.toHaveBeenCalled();
+    expect(configIo.readConfigFileSnapshotWithPluginMetadata).toHaveBeenCalledTimes(1);
+    expect(initialSnapshot.sourceConfig.agents?.defaults?.models).toEqual({
+      "dos-ai/dos-ai": {},
+      "dos-ai/dos-auto": {},
+    });
+    expect(initialSnapshot.sourceConfig.channels?.telegram).toBeUndefined();
+    expect(autoEnabledConfig.agents?.defaults?.models).toEqual({
+      "dos-ai/dos-ai": {},
+      "dos-ai/dos-auto": {},
+    });
+    expect(autoEnabledConfig.channels?.telegram).toEqual({
+      enabled: true,
+    });
+    expect(log.info).toHaveBeenCalledWith(
+      "gateway: auto-enabled plugins for this runtime without writing config:\n- Telegram configured, enabled automatically.",
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("keeps plugin auto-enable runtime-only in Nix mode", async () => {
+    const sourceConfig = {
+      channels: {
+        telegram: {
+          botToken: "test-token",
+        },
+      },
+      gateway: { mode: "local" },
+    } as unknown as OpenClawConfig;
+    const autoEnabledConfig = {
+      ...sourceConfig,
+      plugins: {
+        allow: ["telegram"],
+      },
+    } as unknown as OpenClawConfig;
+    const snapshot = {
+      ...buildTestConfigSnapshot({
+        path: configPath,
+        exists: true,
+        raw: `${JSON.stringify(sourceConfig)}\n`,
+        parsed: sourceConfig,
+        valid: true,
+        config: sourceConfig,
+        issues: [],
+        legacyIssues: [],
       }),
-      afterWrite: { mode: "auto" },
+      sourceConfig,
+      resolved: sourceConfig,
+      runtimeConfig: sourceConfig,
+      config: sourceConfig,
+    } satisfies ConfigFileSnapshot;
+    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata).mockResolvedValueOnce({
+      snapshot,
+      pluginMetadataSnapshot,
     });
-    expect(postWriteSnapshot.sourceConfig.agents?.defaults?.models).toEqual({
-      "dos-ai/dos-ai": {},
-      "dos-ai/dos-auto": {},
+    applyPluginAutoEnable.mockReturnValueOnce({
+      config: autoEnabledConfig,
+      changes: ["Telegram configured, enabled automatically."],
+      autoEnabledReasons: {},
     });
-    expect(postWriteSnapshot.config.agents?.defaults?.models).toEqual({
-      "dos-ai/dos-ai": {},
-      "dos-ai/dos-auto": {},
+    configMocks.isNixMode.value = true;
+    const log = { info: vi.fn(), warn: vi.fn() };
+
+    await expect(
+      loadGatewayStartupConfigSnapshot({
+        minimalTestGateway: false,
+        log,
+      }),
+    ).resolves.toEqual({
+      snapshot: {
+        ...snapshot,
+        runtimeConfig: autoEnabledConfig,
+        config: autoEnabledConfig,
+      },
+      wroteConfig: false,
+      pluginMetadataSnapshot,
     });
+
+    expect(configMutate.replaceConfigFile).not.toHaveBeenCalled();
+    expect(configIo.readConfigFileSnapshotWithPluginMetadata).toHaveBeenCalledTimes(1);
+    expect(log.info).toHaveBeenCalledWith(
+      "gateway: auto-enabled plugins for this runtime without writing config:\n- Telegram configured, enabled automatically.",
+    );
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   it("rejects invalid config before startup without automatic recovery", async () => {
@@ -446,7 +457,7 @@ describe("gateway startup config validation", () => {
         log: { info: vi.fn(), warn: vi.fn() },
       }),
     ).rejects.toThrow(
-      `Invalid config at ${configPath}.\ngateway.mode: Expected 'local' or 'remote'\nRun "openclaw doctor --fix" to repair, then retry.`,
+      `Invalid config at ${configPath}.\ngateway.mode: Expected 'local' or 'remote'\nRun "openclaw doctor --fix" to repair, then retry.\nIf startup is still blocked, inspect the adjacent .bak backup before restoring it manually.`,
     );
   });
 

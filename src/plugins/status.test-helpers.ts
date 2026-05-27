@@ -56,6 +56,7 @@ export function createPluginRecord(
     channelIds: [],
     cliBackendIds: [],
     providerIds: [],
+    embeddingProviderIds: [],
     speechProviderIds: [],
     realtimeTranscriptionProviderIds: [],
     realtimeVoiceProviderIds: [],
@@ -69,7 +70,6 @@ export function createPluginRecord(
     contextEngineIds: [],
     memoryEmbeddingProviderIds: [],
     agentHarnessIds: [],
-    gatewayMethods: [],
     cliCommands: [],
     services: [],
     gatewayDiscoveryServiceIds: [],
@@ -122,13 +122,21 @@ export function createCustomHook(params: {
 export function createPluginLoadResult(
   overrides: Partial<PluginLoadResult> & Pick<PluginLoadResult, "plugins"> = { plugins: [] },
 ): PluginLoadResult {
-  const { plugins, realtimeTranscriptionProviders, realtimeVoiceProviders, ...rest } = overrides;
+  const {
+    plugins,
+    embeddingProviders,
+    modelCatalogProviders,
+    realtimeTranscriptionProviders,
+    realtimeVoiceProviders,
+    ...rest
+  } = overrides;
   return {
     plugins,
     diagnostics: [],
     channels: [],
     channelSetups: [],
     providers: [],
+    embeddingProviders: embeddingProviders ?? [],
     speechProviders: [],
     mediaUnderstandingProviders: [],
     imageGenerationProviders: [],
@@ -147,6 +155,7 @@ export function createPluginLoadResult(
     typedHooks: [],
     httpRoutes: [],
     gatewayHandlers: {},
+    gatewayMethodDescriptors: [],
     cliRegistrars: [],
     services: [],
     commands: [],
@@ -159,6 +168,7 @@ export function createPluginLoadResult(
     sessionSchedulerJobs: [],
     conversationBindingResolvedHandlers: [],
     ...rest,
+    modelCatalogProviders: modelCatalogProviders ?? [],
     gatewayDiscoveryServices: rest.gatewayDiscoveryServices ?? [],
     realtimeTranscriptionProviders: realtimeTranscriptionProviders ?? [],
     realtimeVoiceProviders: realtimeVoiceProviders ?? [],

@@ -35,7 +35,7 @@ import { discoverConfigSecretTargets } from "../secrets/target-registry.js";
 import {
   emitDaemonInstallRuntimeWarning,
   resolveDaemonInstallRuntimeInputs,
-  resolveDaemonNodeBinDir,
+  resolveDaemonServicePathDirs,
 } from "./daemon-install-plan.shared.js";
 import type { DaemonInstallWarnFn } from "./daemon-install-runtime-warning.js";
 import type { GatewayDaemonRuntime } from "./daemon-runtime.js";
@@ -60,6 +60,17 @@ const NON_PERSISTED_CONFIG_SECRET_ENV_TARGET_IDS = new Set([
   "gateway.auth.password",
   "gateway.auth.token",
 ]);
+const EXEC_SECRET_REF_PASS_ENV_ALLOWED_OVERRIDE_ONLY_KEYS = new Set(["HOME"]);
+
+function isBlockedExecSecretRefPassEnvKey(key: string): boolean {
+  if (isDangerousHostEnvVarName(key)) {
+    return true;
+  }
+  if (!isDangerousHostEnvOverrideVarName(key)) {
+    return false;
+  }
+  return !EXEC_SECRET_REF_PASS_ENV_ALLOWED_OVERRIDE_ONLY_KEYS.has(key.toUpperCase());
+}
 
 function loadDaemonInstallAuthProfileSourceRuntime() {
   daemonInstallAuthProfileSourceRuntimePromise ??=
@@ -212,7 +223,7 @@ function collectExecSecretRefPassEnvServiceEnvVars(params: {
         );
         continue;
       }
-      if (isDangerousHostEnvVarName(key) || isDangerousHostEnvOverrideVarName(key)) {
+      if (isBlockedExecSecretRefPassEnvKey(key)) {
         params.warn?.(
           `Exec SecretRef passEnv ref "${key}" blocked by host-env security policy`,
           "Config SecretRef",
@@ -536,7 +547,11 @@ export async function buildGatewayInstallPlan(params: {
         ? resolveGatewayLaunchAgentLabel(serviceInputEnv.OPENCLAW_PROFILE)
         : undefined,
     platform,
-    extraPathDirs: resolveDaemonNodeBinDir(nodePath),
+    extraPathDirs: resolveDaemonServicePathDirs({
+      nodePath,
+      env: serviceInputEnv,
+      platform,
+    }),
   });
 
   const { environment, environmentValueSources } = await buildGatewayInstallEnvironment({
